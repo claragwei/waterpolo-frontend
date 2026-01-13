@@ -892,8 +892,18 @@ export default function LiveStatsPage() {
                       : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
                   }`}
                 >
-                  <div className="text-2xl mb-1">{getPlayerInitials(player.playerName)}</div>
-                  <div className="text-xs opacity-80">{player.playerName.split(' ')[0]}</div>
+                  <div className="text-2xl mb-1">
+                    {currentPossession === 'opponent' 
+                      ? `#${player.playerId - 100}`
+                      : getPlayerInitials(player.playerName)
+                    }
+                  </div>
+                  <div className="text-xs opacity-80">
+                    {currentPossession === 'opponent' 
+                      ? player.playerName
+                      : player.playerName.split(' ')[0]
+                    }
+                  </div>
                 </Button>
                 {player.isActive && (
                   <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
