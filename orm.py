@@ -1,16 +1,22 @@
 from peewee import *
 from playhouse.postgres_ext import PostgresqlDatabase, JSONField
+from playhouse.db_url import connect
 from datetime import datetime
 from typing import List, Dict
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database connection
-db = PostgresqlDatabase(
-    'waterpolo_analytics',
-    user='your_username',
-    password='your_password',
-    host='localhost',
-    port=5432
-)
+# Use the DATABASE_URL environment variable. 
+# We pass Database=PostgresqlDatabase to ensure we get the extended version with JSON support.
+database_url = os.getenv('DATABASE_URL')
+if not database_url:
+    raise ValueError("DATABASE_URL environment variable not set. Please check your .env file.")
+
+db = connect(database_url, Database=PostgresqlDatabase)
 
 class BaseModel(Model):
     """Base model with common fields and database connection"""
@@ -287,7 +293,7 @@ def initialize_database():
     db.create_tables([
         Team, Player, Match, TeamMatchStats, PlayerMatchStats, 
         Possession, Play, MatchPlay, Action, OpponentProfile
-    ])
+    ], safe=True)
     print("Database tables created successfully!")
 
 
