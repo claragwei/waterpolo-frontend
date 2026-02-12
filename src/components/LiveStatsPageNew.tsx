@@ -24,6 +24,7 @@ import {
   ArrowLeftRight
 } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { Input } from './ui/input';
 import { toast } from 'sonner@2.0.3';
 
 interface PlayerStat {
@@ -60,6 +61,15 @@ interface TeamStat {
   possessionTimeOpponent: number;
 }
 
+interface RefereeCalls {
+  yellowCards: number;
+  redCards: number;
+  ejections: number;
+  penalties: number;
+  timeouts: number;
+  brutality: number;
+}
+
 interface Play {
   id: string;
   name: string;
@@ -78,6 +88,8 @@ interface HistoryState {
   plays: Play[];
   currentQuarter: number;
   heatmapData: HeatmapData;
+  refereeCalls: RefereeCalls;
+  refereeName: string;
 }
 
 export default function LiveStatsPage() {
@@ -137,6 +149,17 @@ export default function LiveStatsPage() {
     possessionTimeOpponent: 0,
   });
 
+  const [refereeCalls, setRefereeCalls] = useState<RefereeCalls>({
+    yellowCards: 0,
+    redCards: 0,
+    ejections: 0,
+    penalties: 0,
+    timeouts: 0,
+    brutality: 0
+  });
+
+  const [refereeName, setRefereeName] = useState('');
+
   // Initialize history with current state on mount
   useEffect(() => {
     if (history.length === 0) {
@@ -145,7 +168,9 @@ export default function LiveStatsPage() {
         teamStats: JSON.parse(JSON.stringify(teamStats)),
         plays: JSON.parse(JSON.stringify(plays)),
         currentQuarter,
-        heatmapData: JSON.parse(JSON.stringify(heatmapData))
+        heatmapData: JSON.parse(JSON.stringify(heatmapData)),
+        refereeCalls: JSON.parse(JSON.stringify(refereeCalls)),
+        refereeName
       };
       setHistory([initialState]);
       setHistoryIndex(0);
@@ -153,13 +178,15 @@ export default function LiveStatsPage() {
   }, []);
 
   // Save state to history
-  const saveToHistory = (newPlayerStats: PlayerStat[], newTeamStats: TeamStat, newPlays: Play[], newQuarter: number, newHeatmapData: HeatmapData) => {
+  const saveToHistory = (newPlayerStats: PlayerStat[], newTeamStats: TeamStat, newPlays: Play[], newQuarter: number, newHeatmapData: HeatmapData, newRefereeCalls: RefereeCalls, newRefereeName: string) => {
     const newState: HistoryState = {
       playerStats: JSON.parse(JSON.stringify(newPlayerStats)),
       teamStats: JSON.parse(JSON.stringify(newTeamStats)),
       plays: JSON.parse(JSON.stringify(newPlays)),
       currentQuarter: newQuarter,
-      heatmapData: JSON.parse(JSON.stringify(newHeatmapData))
+      heatmapData: JSON.parse(JSON.stringify(newHeatmapData)),
+      refereeCalls: JSON.parse(JSON.stringify(newRefereeCalls)),
+      refereeName: newRefereeName
     };
 
     const newHistory = history.slice(0, historyIndex + 1);
@@ -184,6 +211,8 @@ export default function LiveStatsPage() {
       setPlays(JSON.parse(JSON.stringify(previousState.plays)));
       setCurrentQuarter(previousState.currentQuarter);
       setHeatmapData(JSON.parse(JSON.stringify(previousState.heatmapData)));
+      setRefereeCalls(JSON.parse(JSON.stringify(previousState.refereeCalls)));
+      setRefereeName(previousState.refereeName);
       setHistoryIndex(historyIndex - 1);
       toast.info('Action undone');
     }
@@ -198,6 +227,8 @@ export default function LiveStatsPage() {
       setPlays(JSON.parse(JSON.stringify(nextState.plays)));
       setCurrentQuarter(nextState.currentQuarter);
       setHeatmapData(JSON.parse(JSON.stringify(nextState.heatmapData)));
+      setRefereeCalls(JSON.parse(JSON.stringify(nextState.refereeCalls)));
+      setRefereeName(nextState.refereeName);
       setHistoryIndex(historyIndex + 1);
       toast.info('Action redone');
     }
@@ -269,6 +300,15 @@ export default function LiveStatsPage() {
       ucDavis: [[0, 0], [0, 0], [0, 0]],
       opponent: [[0, 0], [0, 0], [0, 0]]
     });
+    setRefereeCalls({
+      yellowCards: 0,
+      redCards: 0,
+      ejections: 0,
+      penalties: 0,
+      timeouts: 0,
+      brutality: 0
+    });
+    setRefereeName('');
     toast.success('Game stats reset');
   };
 
@@ -278,6 +318,8 @@ export default function LiveStatsPage() {
     console.log('Team Stats:', teamStats);
     console.log('Plays:', plays);
     console.log('Heatmap Data:', heatmapData);
+    console.log('Referee Calls:', refereeCalls);
+    console.log('Referee Name:', refereeName);
   };
 
   const updatePlayerStat = (playerId: number, stat: keyof Omit<PlayerStat, 'playerId' | 'playerName'>, increment: number = 1) => {
@@ -287,7 +329,7 @@ export default function LiveStatsPage() {
         : p
     );
     setPlayerStats(newPlayerStats);
-    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls, refereeName);
     const player = playerStats.find(p => p.playerId === playerId);
     if (player) {
       toast.success(`${player.playerName} - ${stat} ${increment > 0 ? 'added' : 'removed'}`);
@@ -300,13 +342,28 @@ export default function LiveStatsPage() {
       [stat]: Math.max(0, teamStats[stat] + increment)
     };
     setTeamStats(newTeamStats);
-    saveToHistory(playerStats, newTeamStats, plays, currentQuarter, heatmapData);
+    saveToHistory(playerStats, newTeamStats, plays, currentQuarter, heatmapData, refereeCalls, refereeName);
     toast.success(`Team ${stat} ${increment > 0 ? 'incremented' : 'decremented'}`);
+  };
+
+  const updateRefereeStat = (stat: keyof RefereeCalls, increment: number = 1) => {
+    const newRefereeCalls = {
+      ...refereeCalls,
+      [stat]: Math.max(0, refereeCalls[stat] + increment)
+    };
+    setRefereeCalls(newRefereeCalls);
+    saveToHistory(playerStats, teamStats, plays, currentQuarter, heatmapData, newRefereeCalls, refereeName);
+    toast.info(`Referee call - ${stat} ${increment > 0 ? 'added' : 'removed'}`);
+  };
+
+  const updateRefereeName = (name: string) => {
+    setRefereeName(name);
+    saveToHistory(playerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls, name);
   };
 
   const updateQuarter = (newQuarter: number) => {
     setCurrentQuarter(newQuarter);
-    saveToHistory(playerStats, teamStats, plays, newQuarter, heatmapData);
+    saveToHistory(playerStats, teamStats, plays, newQuarter, heatmapData, refereeCalls, refereeName);
   };
 
   const addPlay = (name: string, success: boolean) => {
@@ -318,7 +375,7 @@ export default function LiveStatsPage() {
     };
     const newPlays = [newPlay, ...plays];
     setPlays(newPlays);
-    saveToHistory(playerStats, teamStats, newPlays, currentQuarter, heatmapData);
+    saveToHistory(playerStats, teamStats, newPlays, currentQuarter, heatmapData, refereeCalls, refereeName);
     toast.success(`Play "${name}" logged as ${success ? 'successful' : 'unsuccessful'}`);
   };
 
@@ -372,7 +429,7 @@ export default function LiveStatsPage() {
     );
     
     setPlayerStats(newPlayerStats);
-    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls, refereeName);
     
     const player = playerStats.find(p => p.playerId === playerId);
     if (player) {
@@ -405,7 +462,7 @@ export default function LiveStatsPage() {
     );
     
     setPlayerStats(newPlayerStats);
-    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls, refereeName);
     
     const player = playerStats.find(p => p.playerId === playerId);
     if (player) {
@@ -479,7 +536,7 @@ export default function LiveStatsPage() {
 
     setPlayerStats(newPlayerStats);
     setHeatmapData(newHeatmapData);
-    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData);
+    saveToHistory(newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls, refereeName);
 
     // Close modal
     setShowHeatmapModal(false);
@@ -999,6 +1056,104 @@ export default function LiveStatsPage() {
                 </Button>
               </div>
             </div>
+          </div>
+        </Card>
+
+        {/* Referee Calls */}
+        <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-[#022851] mb-4">Referee Calls</h3>
+          
+          {/* Referee Name Input */}
+          <div className="mb-6">
+            <label className="block text-sm text-gray-600 mb-2">Referee Name</label>
+            <Input
+              type="text"
+              value={refereeName}
+              onChange={(e) => updateRefereeName(e.target.value)}
+              placeholder="Enter referee name..."
+              className="max-w-md"
+            />
+          </div>
+
+          {/* Referee Call Buttons */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <Button
+              onClick={() => updateRefereeStat('yellowCards', 1)}
+              className="bg-yellow-500 hover:bg-yellow-600 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Yellow Cards</span>
+              <span className="text-3xl">{refereeCalls.yellowCards}</span>
+              {refereeCalls.yellowCards > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-yellow-600">
+                  {refereeCalls.yellowCards}
+                </Badge>
+              )}
+            </Button>
+
+            <Button
+              onClick={() => updateRefereeStat('redCards', 1)}
+              className="bg-red-600 hover:bg-red-700 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Red Cards</span>
+              <span className="text-3xl">{refereeCalls.redCards}</span>
+              {refereeCalls.redCards > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-red-600">
+                  {refereeCalls.redCards}
+                </Badge>
+              )}
+            </Button>
+
+            <Button
+              onClick={() => updateRefereeStat('ejections', 1)}
+              className="bg-orange-600 hover:bg-orange-700 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Ejections</span>
+              <span className="text-3xl">{refereeCalls.ejections}</span>
+              {refereeCalls.ejections > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-orange-600">
+                  {refereeCalls.ejections}
+                </Badge>
+              )}
+            </Button>
+
+            <Button
+              onClick={() => updateRefereeStat('penalties', 1)}
+              className="bg-purple-600 hover:bg-purple-700 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Penalties</span>
+              <span className="text-3xl">{refereeCalls.penalties}</span>
+              {refereeCalls.penalties > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-purple-600">
+                  {refereeCalls.penalties}
+                </Badge>
+              )}
+            </Button>
+
+            <Button
+              onClick={() => updateRefereeStat('timeouts', 1)}
+              className="bg-blue-600 hover:bg-blue-700 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Timeouts</span>
+              <span className="text-3xl">{refereeCalls.timeouts}</span>
+              {refereeCalls.timeouts > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-blue-600">
+                  {refereeCalls.timeouts}
+                </Badge>
+              )}
+            </Button>
+
+            <Button
+              onClick={() => updateRefereeStat('brutality', 1)}
+              className="bg-gray-900 hover:bg-gray-800 text-white h-20 flex flex-col items-center justify-center relative"
+            >
+              <span className="text-sm mb-1">Brutality</span>
+              <span className="text-3xl">{refereeCalls.brutality}</span>
+              {refereeCalls.brutality > 0 && (
+                <Badge className="absolute top-1 right-1 bg-white text-gray-900">
+                  {refereeCalls.brutality}
+                </Badge>
+              )}
+            </Button>
           </div>
         </Card>
 

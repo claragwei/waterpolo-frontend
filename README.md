@@ -1,7 +1,7 @@
 
-  # Testing
+  # BreakThisOne
 
-  This is a code bundle for Testing. The original project is available at https://www.figma.com/design/SFiRw6LSCAmcxYoFthVhdU/Testing.
+  This is a code bundle for BreakThisOne. The original project is available at https://www.figma.com/design/SFiRw6LSCAmcxYoFthVhdU/BreakThisOne.
 
   ## Running the code
 
