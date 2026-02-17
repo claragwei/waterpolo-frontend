@@ -16,7 +16,7 @@ database_url = os.getenv('DATABASE_URL')
 if not database_url:
     raise ValueError("DATABASE_URL environment variable not set. Please check your .env file.")
 
-db = connect(database_url, dbname=PostgresqlDatabase)
+db = connect(database_url, Database=PostgresqlDatabase)
 
 class BaseModel(Model):
     """Base model with common fields and database connection"""

@@ -1,8 +1,386 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { FileText, Download, Calendar, User, Trophy } from 'lucide-react';
+import { FileText, Download, Calendar, User, Trophy, Clock, Flag } from 'lucide-react';
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Badge } from './ui/badge';
 
 export default function ReportsPage() {
+  const [showQuarterReport, setShowQuarterReport] = useState(false);
+  const [showHalftimeReport, setShowHalftimeReport] = useState(false);
+
+  // Mock data - in production, this would come from localStorage or state management
+  const mockGameData = {
+    currentQuarter: 2,
+    gameTime: 360, // 6 minutes into Q2
+    ucDavisScore: 5,
+    opponentScore: 3,
+    opponentName: 'Stanford',
+    quarterStats: {
+      Q1: {
+        ucDavisGoals: 3,
+        opponentGoals: 2,
+        ucDavisPossessionTime: 250,
+        opponentPossessionTime: 230,
+        totalShots: { ucDavis: 8, opponent: 6 },
+        topScorers: [
+          { name: 'Alex Martinez', goals: 2, shots: 3 },
+          { name: 'Jake Thompson', goals: 1, shots: 2 }
+        ],
+        refereeCalls: { yellowCards: 1, ejections: 2, penalties: 1 }
+      },
+      Q2: {
+        ucDavisGoals: 2,
+        opponentGoals: 1,
+        ucDavisPossessionTime: 180,
+        opponentPossessionTime: 180,
+        totalShots: { ucDavis: 5, opponent: 4 },
+        topScorers: [
+          { name: 'Ryan Chen', goals: 1, shots: 2 },
+          { name: 'Marcus Wilson', goals: 1, shots: 1 }
+        ],
+        refereeCalls: { yellowCards: 0, ejections: 1, penalties: 0 }
+      }
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const renderQuarterReport = () => {
+    const quarter = mockGameData.currentQuarter;
+    const qData = mockGameData.quarterStats[`Q${quarter}` as 'Q1' | 'Q2'];
+    
+    return (
+      <Dialog open={showQuarterReport} onOpenChange={setShowQuarterReport}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-[#022851]">
+              Quarter {quarter} Report - UC Davis vs {mockGameData.opponentName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Score Summary */}
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580]">
+              <div className="flex justify-between items-center text-white">
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">UC Davis</div>
+                  <div className="text-5xl font-bold text-[#FFBF00]">{qData.ucDavisGoals}</div>
+                </div>
+                <div className="text-center">
+                  <Badge className="bg-[#FFBF00] text-[#022851] text-lg px-4 py-2">Q{quarter}</Badge>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">{mockGameData.opponentName}</div>
+                  <div className="text-5xl font-bold">{qData.opponentGoals}</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Statistics Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Clock size={18} className="text-[#FFBF00]" />
+                  Possession Time
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{formatTime(qData.ucDavisPossessionTime)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{formatTime(qData.opponentPossessionTime)}</span>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Trophy size={18} className="text-[#FFBF00]" />
+                  Shots
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{qData.totalShots.ucDavis}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{qData.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Top Scorers */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3">Top Scorers (UC Davis)</h3>
+              <div className="space-y-2">
+                {qData.topScorers.map((player, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="font-medium">{player.name}</span>
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-gray-600">{player.goals} goals</span>
+                      <span className="text-gray-600">{player.shots} shots</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Referee Calls */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                <Flag size={18} className="text-[#FFBF00]" />
+                Referee Calls
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600">{qData.refereeCalls.yellowCards}</div>
+                  <div className="text-sm text-gray-600">Yellow Cards</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{qData.refereeCalls.ejections}</div>
+                  <div className="text-sm text-gray-600">Ejections</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-[#022851]">{qData.refereeCalls.penalties}</div>
+                  <div className="text-sm text-gray-600">Penalties</div>
+                </div>
+              </div>
+            </Card>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setShowQuarterReport(false)}>
+                Close
+              </Button>
+              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                <Download className="mr-2" size={16} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  const renderHalftimeReport = () => {
+    const q1Data = mockGameData.quarterStats.Q1;
+    const q2Data = mockGameData.quarterStats.Q2;
+    
+    // Combine Q1 and Q2 stats
+    const combinedStats = {
+      ucDavisGoals: q1Data.ucDavisGoals + q2Data.ucDavisGoals,
+      opponentGoals: q1Data.opponentGoals + q2Data.opponentGoals,
+      ucDavisPossessionTime: q1Data.ucDavisPossessionTime + q2Data.ucDavisPossessionTime,
+      opponentPossessionTime: q1Data.opponentPossessionTime + q2Data.opponentPossessionTime,
+      totalShots: {
+        ucDavis: q1Data.totalShots.ucDavis + q2Data.totalShots.ucDavis,
+        opponent: q1Data.totalShots.opponent + q2Data.totalShots.opponent
+      },
+      refereeCalls: {
+        yellowCards: q1Data.refereeCalls.yellowCards + q2Data.refereeCalls.yellowCards,
+        ejections: q1Data.refereeCalls.ejections + q2Data.refereeCalls.ejections,
+        penalties: q1Data.refereeCalls.penalties + q2Data.refereeCalls.penalties
+      }
+    };
+
+    return (
+      <Dialog open={showHalftimeReport} onOpenChange={setShowHalftimeReport}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-[#022851]">
+              Halftime Report - UC Davis vs {mockGameData.opponentName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Score Summary */}
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580]">
+              <div className="flex justify-between items-center text-white">
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">UC Davis</div>
+                  <div className="text-5xl font-bold text-[#FFBF00]">{combinedStats.ucDavisGoals}</div>
+                </div>
+                <div className="text-center">
+                  <Badge className="bg-[#FFBF00] text-[#022851] text-lg px-4 py-2">Halftime</Badge>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">{mockGameData.opponentName}</div>
+                  <div className="text-5xl font-bold">{combinedStats.opponentGoals}</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Quarter Breakdown */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4 border-2 border-[#FFBF00]">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Badge className="bg-[#FFBF00] text-[#022851]">Q1</Badge>
+                  First Quarter
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Score:</span>
+                    <span className="font-semibold text-[#022851]">{q1Data.ucDavisGoals} - {q1Data.opponentGoals}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Shots:</span>
+                    <span className="font-semibold">{q1Data.totalShots.ucDavis} - {q1Data.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-4 border-2 border-[#022851]">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Badge className="bg-[#022851] text-white">Q2</Badge>
+                  Second Quarter
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Score:</span>
+                    <span className="font-semibold text-[#022851]">{q2Data.ucDavisGoals} - {q2Data.opponentGoals}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Shots:</span>
+                    <span className="font-semibold">{q2Data.totalShots.ucDavis} - {q2Data.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* First Half Statistics */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Clock size={18} className="text-[#FFBF00]" />
+                  Total Possession Time
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{formatTime(combinedStats.ucDavisPossessionTime)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{formatTime(combinedStats.opponentPossessionTime)}</span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Possession %:</span>
+                      <span className="font-semibold text-[#FFBF00]">
+                        {Math.round((combinedStats.ucDavisPossessionTime / (combinedStats.ucDavisPossessionTime + combinedStats.opponentPossessionTime)) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Trophy size={18} className="text-[#FFBF00]" />
+                  Shooting Stats
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Shots:</span>
+                    <span className="font-semibold text-[#022851]">{combinedStats.totalShots.ucDavis} - {combinedStats.totalShots.opponent}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis Accuracy:</span>
+                    <span className="font-semibold text-[#FFBF00]">
+                      {Math.round((combinedStats.ucDavisGoals / combinedStats.totalShots.ucDavis) * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName} Accuracy:</span>
+                    <span className="font-semibold">
+                      {Math.round((combinedStats.opponentGoals / combinedStats.totalShots.opponent) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Combined Top Scorers */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3">First Half Top Scorers (UC Davis)</h3>
+              <div className="space-y-2">
+                {[...q1Data.topScorers, ...q2Data.topScorers].slice(0, 4).map((player, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="font-medium">{player.name}</span>
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-gray-600">{player.goals} goals</span>
+                      <span className="text-gray-600">{player.shots} shots</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* First Half Referee Calls */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                <Flag size={18} className="text-[#FFBF00]" />
+                First Half Referee Calls
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600">{combinedStats.refereeCalls.yellowCards}</div>
+                  <div className="text-sm text-gray-600">Yellow Cards</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{combinedStats.refereeCalls.ejections}</div>
+                  <div className="text-sm text-gray-600">Ejections</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-[#022851]">{combinedStats.refereeCalls.penalties}</div>
+                  <div className="text-sm text-gray-600">Penalties</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Key Insights */}
+            <Card className="p-4 bg-[#FFBF00]/10 border-2 border-[#FFBF00]">
+              <h3 className="text-[#022851] mb-3">Key Insights</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>UC Davis leads by {combinedStats.ucDavisGoals - combinedStats.opponentGoals} goal(s) at halftime</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>UC Davis shooting accuracy: {Math.round((combinedStats.ucDavisGoals / combinedStats.totalShots.ucDavis) * 100)}%</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>Possession advantage: UC Davis {Math.round((combinedStats.ucDavisPossessionTime / (combinedStats.ucDavisPossessionTime + combinedStats.opponentPossessionTime)) * 100)}%</span>
+                </li>
+              </ul>
+            </Card>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setShowHalftimeReport(false)}>
+                Close
+              </Button>
+              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                <Download className="mr-2" size={16} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
   const availableReports = [
     {
       id: 1,
@@ -55,10 +433,29 @@ export default function ReportsPage() {
       description: 'Complete season overview with trends and highlights',
       icon: Calendar,
     },
+    {
+      id: 5,
+      name: 'Quarter Report',
+      description: 'Real-time report for the current quarter based on live stats data',
+      icon: Clock,
+      action: () => setShowQuarterReport(true),
+      highlight: true
+    },
+    {
+      id: 6,
+      name: 'Halftime Report',
+      description: 'Comprehensive first-half analysis combining Q1 and Q2 statistics',
+      icon: Flag,
+      action: () => setShowHalftimeReport(true),
+      highlight: true
+    },
   ];
 
   return (
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
+      {renderQuarterReport()}
+      {renderHalftimeReport()}
+      
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>
         <p className="text-gray-600">Generate and download comprehensive performance reports</p>
@@ -139,9 +536,15 @@ export default function ReportsPage() {
                   <div className="flex-1">
                     <h3 className="text-[#022851] mb-2">{template.name}</h3>
                     <p className="text-gray-600 text-sm mb-4">{template.description}</p>
-                    <Button size="sm" className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]">
-                      Generate Report
-                    </Button>
+                    {template.action ? (
+                      <Button size="sm" className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]" onClick={template.action}>
+                        Generate Report
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]">
+                        Generate Report
+                      </Button>
+                    )}
                   </div>
                 </div>
               </Card>

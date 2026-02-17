@@ -21,7 +21,8 @@ import {
   Redo,
   X,
   Users,
-  ArrowLeftRight
+  ArrowLeftRight,
+  FileText
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner@2.0.3';
@@ -43,6 +44,7 @@ interface PlayerStat {
   exclusions: number;
   draws: number;
   isActive: boolean;
+  notes?: string[];
 }
 
 interface TeamStat {
@@ -69,8 +71,18 @@ interface Play {
 }
 
 interface HeatmapData {
-  ucDavis: number[][];
-  opponent: number[][];
+  ucDavis: { x: number; y: number; type: 'shot' | 'goal' | 'assist'; formation: '4-2' | '3-3' }[];
+  opponent: { x: number; y: number; type: 'shot' | 'goal' | 'assist'; formation: '4-2' | '3-3' }[];
+}
+
+interface RefereeCall {
+  id: string;
+  type: 'yellow-card' | 'red-card' | 'ejection' | 'offensive-foul' | 'defensive-foul' | 'brutality' | 'timeout';
+  playerName?: string;
+  team?: 'ucDavis' | 'opponent';
+  timestamp: string;
+  gameTime: number;
+  quarter: number;
 }
 
 interface HistoryState {
@@ -80,6 +92,7 @@ interface HistoryState {
   plays: Play[];
   currentQuarter: number;
   heatmapData: HeatmapData;
+  refereeCalls: RefereeCall[];
 }
 
 interface PossessionEvent {
@@ -101,22 +114,30 @@ export default function LiveStatsPage() {
   const [currentPossessionStart, setCurrentPossessionStart] = useState(0);
   const [currentPossession, setCurrentPossession] = useState<'ucDavis' | 'opponent' | null>(null);
   
+  // Break state
+  const [isInBreak, setIsInBreak] = useState(false);
+  const [breakTimeRemaining, setBreakTimeRemaining] = useState(0);
+  
   // Undo/Redo state
   const [history, setHistory] = useState<HistoryState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   // Heatmap state
   const [heatmapData, setHeatmapData] = useState<HeatmapData>({
-    ucDavis: [[0, 0], [0, 0], [0, 0]],
-    opponent: [[0, 0], [0, 0], [0, 0]]
+    ucDavis: [],
+    opponent: []
   });
   
   // Heatmap modal state
   const [showHeatmapModal, setShowHeatmapModal] = useState(false);
-  const [pendingAction, setPendingAction] = useState<{ type: 'shot' | 'goal', playerId: number, playerName: string, team: 'ucDavis' | 'opponent' } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ type: 'shot' | 'goal' | 'assist', playerId: number, playerName: string, team: 'ucDavis' | 'opponent' } | null>(null);
+  const [formation, setFormation] = useState<'4-2' | '3-3'>('4-2');
   
   // Substitution modal state
   const [showSubModal, setShowSubModal] = useState(false);
+  const [subTeam, setSubTeam] = useState<'ucDavis' | 'opponent' | null>(null);
+  const [firstSelectedPlayer, setFirstSelectedPlayer] = useState<number | null>(null);
+  const [secondSelectedPlayer, setSecondSelectedPlayer] = useState<number | null>(null);
   
   // Player editing modal state
   const [showPlayerEditModal, setShowPlayerEditModal] = useState(false);
@@ -127,26 +148,50 @@ export default function LiveStatsPage() {
   // Possession timeline state
   const [possessionTimeline, setPossessionTimeline] = useState<PossessionEvent[]>([]);
   
-  // UC Davis player roster
+  // Referee state
+  const [refereeName, setRefereeName] = useState('');
+  const [refereeCalls, setRefereeCalls] = useState<RefereeCall[]>([]);
+  const [showRefereeCallModal, setShowRefereeCallModal] = useState(false);
+  const [pendingRefereeCall, setPendingRefereeCall] = useState<'yellow-card' | 'red-card' | 'ejection' | 'offensive-foul' | 'defensive-foul' | 'brutality' | 'timeout' | null>(null);
+  const [refereeCallCounts, setRefereeCallCounts] = useState({
+    'yellow-card': 0,
+    'red-card': 0,
+    'ejection': 0,
+    'offensive-foul': 0,
+    'defensive-foul': 0,
+    'brutality': 0,
+    'timeout': 0
+  });
+  
+  // Player notes state
+  const [currentNote, setCurrentNote] = useState('');
+  
+  // UC Davis player roster (7 in pool, rest on bench)
   const ucDavisPlayers: PlayerStat[] = [
-    { playerId: 1, playerName: 'Alex Martinez', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 2, playerName: 'Jake Thompson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 3, playerName: 'Ryan Chen', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 4, playerName: 'Marcus Wilson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 5, playerName: 'David Kim', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 6, playerName: 'Brandon Lee', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 7, playerName: 'Chris Anderson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
+    { playerId: 1, playerName: 'Alex Martinez', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 2, playerName: 'Jake Thompson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 3, playerName: 'Ryan Chen', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 4, playerName: 'Marcus Wilson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 5, playerName: 'David Kim', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 6, playerName: 'Brandon Lee', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 7, playerName: 'Chris Anderson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 8, playerName: 'Tyler Johnson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 9, playerName: 'Noah Parker', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 10, playerName: 'Ethan Rodriguez', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
   ];
 
-  // Opponent player roster
+  // Opponent player roster (7 in pool, rest on bench)
   const opponentPlayers: PlayerStat[] = [
-    { playerId: 101, playerName: 'Opponent #1', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 102, playerName: 'Opponent #2', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 103, playerName: 'Opponent #3', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 104, playerName: 'Opponent #4', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 105, playerName: 'Opponent #5', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 106, playerName: 'Opponent #6', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
-    { playerId: 107, playerName: 'Opponent #7', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true },
+    { playerId: 101, playerName: 'Opponent #1', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 102, playerName: 'Opponent #2', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 103, playerName: 'Opponent #3', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 104, playerName: 'Opponent #4', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 105, playerName: 'Opponent #5', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 106, playerName: 'Opponent #6', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 107, playerName: 'Opponent #7', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 108, playerName: 'Opponent #8', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 109, playerName: 'Opponent #9', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 110, playerName: 'Opponent #10', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
   ];
 
   const [ucDavisPlayerStats, setUcDavisPlayerStats] = useState<PlayerStat[]>(ucDavisPlayers);
@@ -179,7 +224,8 @@ export default function LiveStatsPage() {
         teamStats: JSON.parse(JSON.stringify(teamStats)),
         plays: JSON.parse(JSON.stringify(plays)),
         currentQuarter,
-        heatmapData: JSON.parse(JSON.stringify(heatmapData))
+        heatmapData: JSON.parse(JSON.stringify(heatmapData)),
+        refereeCalls: []
       };
       setHistory([initialState]);
       setHistoryIndex(0);
@@ -193,7 +239,8 @@ export default function LiveStatsPage() {
     newTeamStats: TeamStat, 
     newPlays: Play[], 
     newQuarter: number, 
-    newHeatmapData: HeatmapData
+    newHeatmapData: HeatmapData,
+    newRefereeCalls: RefereeCall[]
   ) => {
     const newState: HistoryState = {
       ucDavisPlayerStats: JSON.parse(JSON.stringify(newUcDavisStats)),
@@ -201,7 +248,8 @@ export default function LiveStatsPage() {
       teamStats: JSON.parse(JSON.stringify(newTeamStats)),
       plays: JSON.parse(JSON.stringify(newPlays)),
       currentQuarter: newQuarter,
-      heatmapData: JSON.parse(JSON.stringify(newHeatmapData))
+      heatmapData: JSON.parse(JSON.stringify(newHeatmapData)),
+      refereeCalls: JSON.parse(JSON.stringify(newRefereeCalls))
     };
 
     const newHistory = history.slice(0, historyIndex + 1);
@@ -227,6 +275,23 @@ export default function LiveStatsPage() {
       setPlays(JSON.parse(JSON.stringify(previousState.plays)));
       setCurrentQuarter(previousState.currentQuarter);
       setHeatmapData(JSON.parse(JSON.stringify(previousState.heatmapData)));
+      setRefereeCalls(JSON.parse(JSON.stringify(previousState.refereeCalls)));
+      
+      // Recalculate referee call counts
+      const counts = {
+        'yellow-card': 0,
+        'red-card': 0,
+        'ejection': 0,
+        'offensive-foul': 0,
+        'defensive-foul': 0,
+        'brutality': 0,
+        'timeout': 0
+      };
+      previousState.refereeCalls.forEach((call: RefereeCall) => {
+        counts[call.type]++;
+      });
+      setRefereeCallCounts(counts);
+      
       setHistoryIndex(historyIndex - 1);
       toast.info('Action undone');
     }
@@ -242,6 +307,23 @@ export default function LiveStatsPage() {
       setPlays(JSON.parse(JSON.stringify(nextState.plays)));
       setCurrentQuarter(nextState.currentQuarter);
       setHeatmapData(JSON.parse(JSON.stringify(nextState.heatmapData)));
+      setRefereeCalls(JSON.parse(JSON.stringify(nextState.refereeCalls)));
+      
+      // Recalculate referee call counts
+      const counts = {
+        'yellow-card': 0,
+        'red-card': 0,
+        'ejection': 0,
+        'offensive-foul': 0,
+        'defensive-foul': 0,
+        'brutality': 0,
+        'timeout': 0
+      };
+      nextState.refereeCalls.forEach((call: RefereeCall) => {
+        counts[call.type]++;
+      });
+      setRefereeCallCounts(counts);
+      
       setHistoryIndex(historyIndex + 1);
       toast.info('Action redone');
     }
@@ -294,6 +376,8 @@ export default function LiveStatsPage() {
     setIsPaused(false);
     setGameTime(0);
     setCurrentQuarter(1);
+    setIsInBreak(false);
+    setBreakTimeRemaining(0);
     setUcDavisPlayerStats(ucDavisPlayers);
     setOpponentPlayerStats(opponentPlayers);
     setTeamStats({
@@ -314,8 +398,8 @@ export default function LiveStatsPage() {
     setHistory([]);
     setHistoryIndex(-1);
     setHeatmapData({
-      ucDavis: [[0, 0], [0, 0], [0, 0]],
-      opponent: [[0, 0], [0, 0], [0, 0]]
+      ucDavis: [],
+      opponent: []
     });
     toast.success('Game stats reset');
   };
@@ -339,7 +423,7 @@ export default function LiveStatsPage() {
           : p
       );
       setOpponentPlayerStats(newPlayerStats);
-      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     } else {
       const newPlayerStats = ucDavisPlayerStats.map(p => 
         p.playerId === playerId 
@@ -347,7 +431,7 @@ export default function LiveStatsPage() {
           : p
       );
       setUcDavisPlayerStats(newPlayerStats);
-      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     }
 
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -362,18 +446,18 @@ export default function LiveStatsPage() {
       [stat]: Math.max(0, teamStats[stat] + increment)
     };
     setTeamStats(newTeamStats);
-    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, newTeamStats, plays, currentQuarter, heatmapData);
+    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, newTeamStats, plays, currentQuarter, heatmapData, refereeCalls);
     toast.success(`Team ${stat} ${increment > 0 ? 'incremented' : 'decremented'}`);
   };
 
   const updateQuarter = (newQuarter: number) => {
     setCurrentQuarter(newQuarter);
-    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, newQuarter, heatmapData);
+    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, newQuarter, heatmapData, refereeCalls);
   };
 
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
-    if (isGameActive && !isPaused) {
+    if (isGameActive && !isPaused && !isInBreak) {
       interval = setInterval(() => {
         setGameTime(prev => prev + 1);
       }, 1000);
@@ -383,7 +467,59 @@ export default function LiveStatsPage() {
         clearInterval(interval);
       }
     };
-  }, [isGameActive, isPaused]);
+  }, [isGameActive, isPaused, isInBreak]);
+
+  // Check if quarter has ended and trigger break
+  useEffect(() => {
+    if (gameTime === 480 && isGameActive && !isInBreak && currentQuarter < 4) {
+      // Quarter ended at 8 minutes
+      let breakDuration = 0;
+      let breakMessage = '';
+      
+      if (currentQuarter === 1) {
+        breakDuration = 120; // 2 minutes between Q1 and Q2
+        breakMessage = 'Quarter 1 complete! 2-minute break before Quarter 2';
+      } else if (currentQuarter === 2) {
+        breakDuration = 300; // 5 minutes between Q2 and Q3 (halftime)
+        breakMessage = 'Halftime! 5-minute break before Quarter 3';
+      } else if (currentQuarter === 3) {
+        breakDuration = 120; // 2 minutes between Q3 and Q4
+        breakMessage = 'Quarter 3 complete! 2-minute break before Quarter 4';
+      }
+      
+      setIsInBreak(true);
+      setBreakTimeRemaining(breakDuration);
+      setIsPossessionActive(false); // Stop possession timer during break
+      toast.info(breakMessage, { duration: 5000 });
+    }
+  }, [gameTime, isGameActive, isInBreak, currentQuarter]);
+
+  // Break timer countdown
+  useEffect(() => {
+    let breakInterval: NodeJS.Timeout | null = null;
+    if (isInBreak && breakTimeRemaining > 0) {
+      breakInterval = setInterval(() => {
+        setBreakTimeRemaining(prev => {
+          if (prev <= 1) {
+            // Break is over, advance to next quarter
+            setIsInBreak(false);
+            setGameTime(0);
+            const nextQuarter = currentQuarter + 1;
+            setCurrentQuarter(nextQuarter);
+            saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, nextQuarter, heatmapData, refereeCalls);
+            toast.success(`Quarter ${nextQuarter} starting!`, { duration: 3000 });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (breakInterval) {
+        clearInterval(breakInterval);
+      }
+    };
+  }, [isInBreak, breakTimeRemaining, currentQuarter, ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, heatmapData, refereeCalls]);
 
   useEffect(() => {
     let possessionInterval: NodeJS.Timeout | null = null;
@@ -418,7 +554,7 @@ export default function LiveStatsPage() {
           : p
       );
       setOpponentPlayerStats(newPlayerStats);
-      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     } else {
       const newPlayerStats = ucDavisPlayerStats.map(p => 
         p.playerId === playerId 
@@ -426,7 +562,7 @@ export default function LiveStatsPage() {
           : p
       );
       setUcDavisPlayerStats(newPlayerStats);
-      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     }
     
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -473,7 +609,7 @@ export default function LiveStatsPage() {
           : p
       );
       setOpponentPlayerStats(newPlayerStats);
-      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     } else {
       const newPlayerStats = ucDavisPlayerStats.map(p => 
         p.playerId === playerId 
@@ -481,7 +617,7 @@ export default function LiveStatsPage() {
           : p
       );
       setUcDavisPlayerStats(newPlayerStats);
-      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData);
+      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     }
     
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -533,15 +669,141 @@ export default function LiveStatsPage() {
     }
   };
 
-  // Handle zone selection in heatmap modal
-  const handleZoneSelect = (row: number, col: number) => {
+  // Open heatmap modal for assist
+  const handleAssistClick = (playerId: number) => {
+    const player = activePlayerStats.find(p => p.playerId === playerId);
+    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    if (player) {
+      setPendingAction({ type: 'assist', playerId, playerName: player.playerName, team });
+      setShowHeatmapModal(true);
+    }
+  };
+
+  // Add note to player
+  const handleAddNote = () => {
+    if (!selectedPlayer || !currentNote.trim()) {
+      toast.error('Please enter a note');
+      return;
+    }
+
+    const timestamp = `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')} Q${currentQuarter}`;
+    const noteWithTimestamp = `[${timestamp}] ${currentNote.trim()}`;
+
+    if (currentPossession === 'opponent') {
+      const newPlayerStats = opponentPlayerStats.map(p => 
+        p.playerId === selectedPlayer 
+          ? { ...p, notes: [...(p.notes || []), noteWithTimestamp] } 
+          : p
+      );
+      setOpponentPlayerStats(newPlayerStats);
+      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    } else {
+      const newPlayerStats = ucDavisPlayerStats.map(p => 
+        p.playerId === selectedPlayer 
+          ? { ...p, notes: [...(p.notes || []), noteWithTimestamp] } 
+          : p
+      );
+      setUcDavisPlayerStats(newPlayerStats);
+      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    }
+
+    setCurrentNote('');
+    toast.success('Note added');
+  };
+
+  // Handle referee call
+  const handleRefereeCall = (callType: 'yellow-card' | 'red-card' | 'ejection' | 'offensive-foul' | 'defensive-foul' | 'brutality' | 'timeout') => {
+    // Pause the game
+    setIsPaused(true);
+    setPendingRefereeCall(callType);
+    setShowRefereeCallModal(true);
+  };
+
+  // Add referee call with player/team selection
+  const addRefereeCall = (playerName?: string, team?: 'ucDavis' | 'opponent') => {
+    if (!pendingRefereeCall) return;
+
+    const timestamp = `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')}`;
+    const newCall: RefereeCall = {
+      id: Date.now().toString(),
+      type: pendingRefereeCall,
+      playerName,
+      team,
+      timestamp,
+      gameTime,
+      quarter: currentQuarter
+    };
+
+    const newRefereeCalls = [...refereeCalls, newCall];
+    setRefereeCalls(newRefereeCalls);
+    
+    // Increment the counter for this call type
+    setRefereeCallCounts(prev => ({
+      ...prev,
+      [pendingRefereeCall]: prev[pendingRefereeCall] + 1
+    }));
+    
+    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, newRefereeCalls);
+
+    const callLabel = pendingRefereeCall.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    toast.success(`${callLabel} recorded${playerName ? ` - ${playerName}` : ''}`);
+    
+    setShowRefereeCallModal(false);
+    setPendingRefereeCall(null);
+  };
+
+  // Handle player substitution
+  const handleSubstitution = () => {
+    if (!firstSelectedPlayer || !secondSelectedPlayer || !subTeam) {
+      toast.error('Please select two players to swap');
+      return;
+    }
+
+    const playerStats = subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats;
+    
+    const player1 = playerStats.find(p => p.playerId === firstSelectedPlayer);
+    const player2 = playerStats.find(p => p.playerId === secondSelectedPlayer);
+
+    if (!player1 || !player2) {
+      toast.error('Invalid player selection');
+      return;
+    }
+
+    // Swap the isActive status of both players
+    const newPlayerStats = playerStats.map(player => {
+      if (player.playerId === firstSelectedPlayer) {
+        return { ...player, isActive: player2.isActive };
+      } else if (player.playerId === secondSelectedPlayer) {
+        return { ...player, isActive: player1.isActive };
+      }
+      return player;
+    });
+
+    if (subTeam === 'ucDavis') {
+      setUcDavisPlayerStats(newPlayerStats);
+      saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    } else {
+      setOpponentPlayerStats(newPlayerStats);
+      saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    }
+    
+    toast.success(`Swapped: ${player1.playerName} ↔ ${player2.playerName}`);
+    
+    setShowSubModal(false);
+    setFirstSelectedPlayer(null);
+    setSecondSelectedPlayer(null);
+    setSubTeam(null);
+  };
+
+  // Handle pin-drop selection in heatmap modal
+  const handlePinDrop = (x: number, y: number) => {
     if (!pendingAction) return;
 
     const { type, playerId, playerName, team } = pendingAction;
 
-    // Update heatmap data
+    // Add shot location to heatmap data with formation and type
     const newHeatmapData = { ...heatmapData };
-    newHeatmapData[team][row][col] += 1;
+    newHeatmapData[team] = [...newHeatmapData[team], { x, y, type, formation }];
 
     // Update player stats
     if (type === 'shot') {
@@ -550,30 +812,30 @@ export default function LiveStatsPage() {
           p.playerId === playerId ? { ...p, shots: p.shots + 1 } : p
         );
         setOpponentPlayerStats(newPlayerStats);
-        saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData);
+        saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       } else {
         const newPlayerStats = ucDavisPlayerStats.map(p => 
           p.playerId === playerId ? { ...p, shots: p.shots + 1 } : p
         );
         setUcDavisPlayerStats(newPlayerStats);
-        saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData);
+        saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
-      toast.success(`${playerName} - Shot from ${getPositionName(row, col)}`);
+      toast.success(`${playerName} - Shot recorded (${formation})`);
     } else if (type === 'goal') {
       if (team === 'opponent') {
         const newPlayerStats = opponentPlayerStats.map(p => 
           p.playerId === playerId ? { ...p, goals: p.goals + 1, shots: p.shots + 1 } : p
         );
         setOpponentPlayerStats(newPlayerStats);
-        saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData);
+        saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       } else {
         const newPlayerStats = ucDavisPlayerStats.map(p => 
           p.playerId === playerId ? { ...p, goals: p.goals + 1, shots: p.shots + 1 } : p
         );
         setUcDavisPlayerStats(newPlayerStats);
-        saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData);
+        saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
-      toast.success(`${playerName} - GOAL from ${getPositionName(row, col)}!`);
+      toast.success(`${playerName} - GOAL! (${formation})`);
       
       // Add to possession timeline
       const currentTime = team === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
@@ -601,6 +863,21 @@ export default function LiveStatsPage() {
         setSelectedPlayer(null);
         toast.info(`${newPossession === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession started (restart)`);
       }, 500);
+    } else if (type === 'assist') {
+      if (team === 'opponent') {
+        const newPlayerStats = opponentPlayerStats.map(p => 
+          p.playerId === playerId ? { ...p, assists: p.assists + 1 } : p
+        );
+        setOpponentPlayerStats(newPlayerStats);
+        saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
+      } else {
+        const newPlayerStats = ucDavisPlayerStats.map(p => 
+          p.playerId === playerId ? { ...p, assists: p.assists + 1 } : p
+        );
+        setUcDavisPlayerStats(newPlayerStats);
+        saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
+      }
+      toast.success(`${playerName} - Assist! (${formation})`);
     }
 
     setHeatmapData(newHeatmapData);
@@ -610,38 +887,32 @@ export default function LiveStatsPage() {
     setPendingAction(null);
   };
 
-  const getPositionName = (row: number, col: number) => {
-    const positions = [
-      ['Left Wing', 'Right Wing'],
-      ['Left Flat', 'Right Flat'],
-      ['Point', 'Point']
-    ];
-    return positions[row][col];
-  };
-
-  const getZoneLabel = (row: number, col: number) => {
-    const zones = [
-      ['① Left Wing', '③ Right Wing'],
-      ['② Left Flat', '④ Right Flat'],
-      ['⑤ Point', '⑤ Point']
-    ];
-    return zones[row][col];
-  };
-
-  const getHeatmapIntensity = (value: number, team: 'ucDavis' | 'opponent') => {
-    if (value === 0) return 'bg-blue-400/40';
-    if (team === 'ucDavis') {
-      if (value === 1) return 'bg-yellow-200/70';
-      if (value === 2) return 'bg-yellow-300/80';
-      if (value === 3) return 'bg-yellow-400/90';
-      if (value >= 4) return 'bg-yellow-500';
+  // Get player positions based on formation
+  const getPlayerPositions = (formation: '4-2' | '3-3') => {
+    if (formation === '4-2') {
+      return [
+        // 4 players at 2m line (positioned at y=25%)
+        { x: 20, y: 25, label: '1' },
+        { x: 40, y: 25, label: '2' },
+        { x: 60, y: 25, label: '3' },
+        { x: 80, y: 25, label: '4' },
+        // 2 players at 6m line (positioned at y=70%)
+        { x: 35, y: 70, label: '5' },
+        { x: 65, y: 70, label: '6' },
+      ];
     } else {
-      if (value === 1) return 'bg-red-200/70';
-      if (value === 2) return 'bg-red-300/80';
-      if (value === 3) return 'bg-red-400/90';
-      if (value >= 4) return 'bg-red-500';
+      // 3-3 formation
+      return [
+        // 3 players at 2m line (positioned at y=25%)
+        { x: 25, y: 25, label: '1' },
+        { x: 50, y: 25, label: '2' },
+        { x: 75, y: 25, label: '3' },
+        // 3 players at 6m line (positioned at y=70%)
+        { x: 25, y: 70, label: '4' },
+        { x: 50, y: 70, label: '5' },
+        { x: 75, y: 70, label: '6' },
+      ];
     }
-    return 'bg-blue-400/40';
   };
 
   const canUndo = historyIndex > 0;
@@ -707,13 +978,32 @@ export default function LiveStatsPage() {
               </>
             ) : (
               <>
-                <Button 
-                  onClick={handlePauseGame}
-                  className="bg-[#022851] text-white hover:bg-[#022851]/90"
-                >
-                  {isPaused ? <Play size={16} className="mr-2" /> : <Pause size={16} className="mr-2" />}
-                  {isPaused ? 'Resume' : 'Pause'}
-                </Button>
+                {isInBreak ? (
+                  <Button 
+                    onClick={() => {
+                      // Skip break and start next quarter immediately
+                      setIsInBreak(false);
+                      setBreakTimeRemaining(0);
+                      setGameTime(0);
+                      const nextQuarter = currentQuarter + 1;
+                      setCurrentQuarter(nextQuarter);
+                      saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, nextQuarter, heatmapData, refereeCalls);
+                      toast.success(`Quarter ${nextQuarter} starting early!`, { duration: 3000 });
+                    }}
+                    className="bg-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/90"
+                  >
+                    <ArrowRight size={16} className="mr-2" />
+                    Skip Break & Start Q{currentQuarter + 1}
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={handlePauseGame}
+                    className="bg-[#022851] text-white hover:bg-[#022851]/90"
+                  >
+                    {isPaused ? <Play size={16} className="mr-2" /> : <Pause size={16} className="mr-2" />}
+                    {isPaused ? 'Resume' : 'Pause'}
+                  </Button>
+                )}
                 <Button 
                   onClick={handleSaveGame}
                   className="bg-green-600 text-white hover:bg-green-700"
@@ -740,14 +1030,24 @@ export default function LiveStatsPage() {
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-2">
                 <Clock size={20} />
-                <span className="text-2xl">{formatTime(gameTime)}</span>
+                {isInBreak ? (
+                  <span className="text-2xl">{formatTime(breakTimeRemaining)}</span>
+                ) : (
+                  <span className="text-2xl">{formatTime(gameTime)}</span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Activity size={20} />
-                <span className="text-xl">Quarter {currentQuarter}</span>
+                {isInBreak ? (
+                  <span className="text-xl">
+                    {currentQuarter === 2 ? 'Halftime' : `Break (Q${currentQuarter} → Q${currentQuarter + 1})`}
+                  </span>
+                ) : (
+                  <span className="text-xl">Quarter {currentQuarter}</span>
+                )}
               </div>
-              <Badge className={`${isGameActive ? (isPaused ? 'bg-yellow-500' : 'bg-green-500') : 'bg-gray-500'} text-white`}>
-                {isGameActive ? (isPaused ? 'PAUSED' : 'LIVE') : 'NOT STARTED'}
+              <Badge className={`${isInBreak ? 'bg-orange-500' : isGameActive ? (isPaused ? 'bg-yellow-500' : 'bg-green-500') : 'bg-gray-500'} text-white`}>
+                {isInBreak ? 'BREAK' : isGameActive ? (isPaused ? 'PAUSED' : 'LIVE') : 'NOT STARTED'}
               </Badge>
             </div>
             <div className="flex items-center gap-4">
@@ -871,56 +1171,139 @@ export default function LiveStatsPage() {
 
         {/* Player Selection */}
         <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[#022851]">Select Player - {activeTeamName}</h3>
-          </div>
-          <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
-            {activePlayerStats.map((player) => (
-              <div key={player.playerId} className="relative">
-                <Button
-                  onClick={() => {
-                    setSelectedPlayer(player.playerId);
-                    toast.success(`Tracking ${player.playerName}`);
-                  }}
-                  className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
-                    selectedPlayer === player.playerId
-                      ? currentPossession === 'ucDavis'
-                        ? 'bg-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/90 ring-2 ring-[#022851] shadow-lg'
-                        : 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-800 shadow-lg'
-                      : player.isActive
-                      ? 'bg-green-100 text-gray-700 hover:bg-green-200 border-2 border-green-500'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
-                  }`}
-                >
-                  <div className="text-2xl mb-1">
-                    {currentPossession === 'opponent' 
-                      ? `#${player.playerId - 100}`
-                      : getPlayerInitials(player.playerName)
-                    }
-                  </div>
-                  <div className="text-xs opacity-80">
-                    {currentPossession === 'opponent' 
-                      ? player.playerName
-                      : player.playerName.split(' ')[0]
-                    }
-                  </div>
-                </Button>
-                {player.isActive && (
-                  <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
-                    IN
+          <div className="space-y-6">
+            {/* UC Davis Players */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[#022851]">Select Player - UC Davis</h3>
+                {currentPossession === 'ucDavis' && isPossessionActive && (
+                  <Badge className="bg-[#FFBF00] text-[#022851]">
+                    <Activity size={12} className="mr-1 inline animate-pulse" />
+                    Active Possession
                   </Badge>
                 )}
               </div>
-            ))}
-          </div>
-          <div className="mt-3 text-sm text-gray-500 flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-green-500 rounded"></div>
-              <span>In Pool</span>
+              <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
+                {ucDavisPlayerStats.map((player) => {
+                  const isSelectedUCDavis = selectedPlayer === player.playerId && currentPossession === 'ucDavis';
+                  return (
+                    <div key={player.playerId} className="relative">
+                      <Button
+                        onClick={() => {
+                          setSelectedPlayer(player.playerId);
+                          setCurrentPossession('ucDavis');
+                          toast.success(`Tracking ${player.playerName}`);
+                        }}
+                        className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
+                          isSelectedUCDavis
+                            ? 'bg-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/90 ring-2 ring-[#022851] shadow-lg'
+                            : player.isActive
+                            ? 'bg-green-100 text-gray-700 hover:bg-green-200 border-2 border-green-500'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">
+                          {getPlayerInitials(player.playerName)}
+                        </div>
+                        <div className="text-xs opacity-80">
+                          {player.playerName.split(' ')[0]}
+                        </div>
+                      </Button>
+                      {player.isActive && (
+                        <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
+                          IN
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex items-center gap-1 ml-4">
-              <div className="w-3 h-3 bg-gray-300 rounded"></div>
-              <span>On Bench</span>
+
+            {/* Opponent Players */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[#022851]">Select Player - Opponents</h3>
+                {currentPossession === 'opponent' && isPossessionActive && (
+                  <Badge className="bg-red-600 text-white">
+                    <Activity size={12} className="mr-1 inline animate-pulse" />
+                    Active Possession
+                  </Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
+                {opponentPlayerStats.map((player) => {
+                  const isSelectedOpponent = selectedPlayer === player.playerId && currentPossession === 'opponent';
+                  return (
+                    <div key={player.playerId} className="relative">
+                      <Button
+                        onClick={() => {
+                          setSelectedPlayer(player.playerId);
+                          setCurrentPossession('opponent');
+                          toast.success(`Tracking ${player.playerName}`);
+                        }}
+                        className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
+                          isSelectedOpponent
+                            ? 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-800 shadow-lg'
+                            : player.isActive
+                            ? 'bg-green-100 text-gray-700 hover:bg-green-200 border-2 border-green-500'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">
+                          #{player.playerId - 100}
+                        </div>
+                        <div className="text-xs opacity-80">
+                          {player.playerName}
+                        </div>
+                      </Button>
+                      {player.isActive && (
+                        <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
+                          IN
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Legend and Substitution Buttons */}
+          <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="text-sm text-gray-500 flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-green-500 rounded"></div>
+                <span>In Pool</span>
+              </div>
+              <div className="flex items-center gap-1 ml-4">
+                <div className="w-3 h-3 bg-gray-300 rounded"></div>
+                <span>On Bench</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setSubTeam('ucDavis');
+                  setShowSubModal(true);
+                }}
+                className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]"
+              >
+                <ArrowLeftRight className="mr-1" size={14} />
+                Swap UC Davis
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setSubTeam('opponent');
+                  setShowSubModal(true);
+                }}
+                className="bg-gray-700 hover:bg-gray-800 text-white"
+              >
+                <ArrowLeftRight className="mr-1" size={14} />
+                Swap Opponent
+              </Button>
             </div>
           </div>
         </Card>
@@ -1000,7 +1383,7 @@ export default function LiveStatsPage() {
                   Penalty Shot
                 </Button>
                 <Button
-                  onClick={() => updatePlayerStat(selectedPlayer, 'assists')}
+                  onClick={() => handleAssistClick(selectedPlayer)}
                   className="bg-purple-500 hover:bg-purple-600 text-white h-20 flex flex-col items-center justify-center"
                 >
                   <ArrowRight size={24} className="mb-1" />
@@ -1074,11 +1457,67 @@ export default function LiveStatsPage() {
                 </Button>
               </div>
             </Card>
+
+            {/* Player Notes Section */}
+            <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <FileText size={20} className="text-[#022851]" />
+                  <h3 className="text-[#022851]">Player Notes - {activePlayerStats.find(p => p.playerId === selectedPlayer)?.playerName}</h3>
+                </div>
+                <Badge className={currentPossession === 'ucDavis' ? 'bg-[#FFBF00] text-[#022851]' : 'bg-red-600 text-white'}>
+                  Q{currentQuarter} - {String(Math.floor(gameTime / 60)).padStart(2, '0')}:{String(gameTime % 60).padStart(2, '0')}
+                </Badge>
+              </div>
+
+              {/* Add Note Input */}
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="text"
+                  value={currentNote}
+                  onChange={(e) => setCurrentNote(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleAddNote();
+                    }
+                  }}
+                  placeholder="Add a note about this player's performance..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFBF00]"
+                />
+                <Button
+                  onClick={handleAddNote}
+                  className="bg-[#022851] text-white hover:bg-[#022851]/90"
+                >
+                  <Plus size={16} className="mr-1" />
+                  Add Note
+                </Button>
+              </div>
+
+              {/* Notes List */}
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {activePlayerStats.find(p => p.playerId === selectedPlayer)?.notes && 
+                 activePlayerStats.find(p => p.playerId === selectedPlayer)?.notes!.length > 0 ? (
+                  activePlayerStats
+                    .find(p => p.playerId === selectedPlayer)
+                    ?.notes!.slice()
+                    .reverse()
+                    .map((note, index) => (
+                      <div key={index} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <p className="text-sm text-gray-700">{note}</p>
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-sm text-gray-500 text-center py-4">
+                    No notes yet. Add observations about this player's performance during the game.
+                  </p>
+                )}
+              </div>
+            </Card>
           </>
         )}
 
-        {/* Team Situations & Possession Timeline */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Team Situations, Referee, & Possession Timeline */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Team Situations - Condensed */}
           <Card className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
             <h3 className="text-[#022851] mb-3 text-lg">Team Situations</h3>
@@ -1113,6 +1552,96 @@ export default function LiveStatsPage() {
               <Button onClick={() => updateTeamStat('sixOnSeven')} className="bg-orange-700 hover:bg-orange-800 text-white h-12 text-xs px-1">
                 6v7 <Badge className="ml-1 bg-white text-orange-800">{teamStats.sixOnSeven}</Badge>
               </Button>
+            </div>
+          </Card>
+
+          {/* Referee */}
+          <Card className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+            <h3 className="text-[#022851] mb-3 text-lg">Referee</h3>
+            
+            {/* Referee Name Input */}
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Referee Name"
+                value={refereeName}
+                onChange={(e) => setRefereeName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#022851]"
+              />
+            </div>
+
+            {/* Referee Call Buttons */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <Button
+                onClick={() => handleRefereeCall('yellow-card')}
+                className="bg-yellow-400 hover:bg-yellow-500 text-gray-900 h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Yellow Card <Badge className="bg-gray-900 text-yellow-400">{refereeCallCounts['yellow-card']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('red-card')}
+                className="bg-red-600 hover:bg-red-700 text-white h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Red Card <Badge className="bg-white text-red-600">{refereeCallCounts['red-card']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('ejection')}
+                className="bg-orange-600 hover:bg-orange-700 text-white h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Ejection <Badge className="bg-white text-orange-600">{refereeCallCounts['ejection']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('offensive-foul')}
+                className="bg-blue-600 hover:bg-blue-700 text-white h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Off. Foul <Badge className="bg-white text-blue-600">{refereeCallCounts['offensive-foul']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('defensive-foul')}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Def. Foul <Badge className="bg-white text-indigo-600">{refereeCallCounts['defensive-foul']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('brutality')}
+                className="bg-red-900 hover:bg-red-950 text-white h-12 text-xs flex items-center justify-center gap-1"
+              >
+                Brutality <Badge className="bg-white text-red-900">{refereeCallCounts['brutality']}</Badge>
+              </Button>
+              <Button
+                onClick={() => handleRefereeCall('timeout')}
+                className="bg-gray-600 hover:bg-gray-700 text-white h-12 text-xs col-span-2 flex items-center justify-center gap-1"
+              >
+                Timeout <Badge className="bg-white text-gray-600">{refereeCallCounts['timeout']}</Badge>
+              </Button>
+            </div>
+
+            {/* Referee Calls Timeline */}
+            <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              {refereeCalls.length === 0 ? (
+                <p className="text-gray-500 text-xs text-center py-4">No referee calls yet</p>
+              ) : (
+                refereeCalls.slice().reverse().map((call) => (
+                  <div
+                    key={call.id}
+                    className="p-2 bg-gray-50 border border-gray-200 rounded text-xs"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-[#022851] text-white text-xs">
+                        {call.timestamp} Q{call.quarter}
+                      </Badge>
+                      <span className="text-[#022851] font-semibold">
+                        {call.type.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                      </span>
+                    </div>
+                    {call.playerName && (
+                      <div className="text-gray-700">
+                        {call.playerName} {call.team && `(${call.team === 'ucDavis' ? 'UC Davis' : 'Opponent'})`}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </Card>
 
@@ -1341,9 +1870,9 @@ export default function LiveStatsPage() {
           <Card className="p-6 bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-[#022851] text-2xl">Select Shot Location</h3>
+                <h3 className="text-[#022851] text-2xl">Select Location</h3>
                 <p className="text-gray-600">
-                  {pendingAction.playerName} ({pendingAction.team === 'ucDavis' ? 'UC Davis' : 'Opponent'}) - {pendingAction.type === 'shot' ? 'Shot Taken' : 'Goal Scored'}
+                  {pendingAction.playerName} ({pendingAction.team === 'ucDavis' ? 'UC Davis' : 'Opponent'}) - {pendingAction.type === 'shot' ? 'Shot Taken' : pendingAction.type === 'goal' ? 'Goal Scored' : 'Assist'}
                 </p>
               </div>
               <Button
@@ -1360,7 +1889,36 @@ export default function LiveStatsPage() {
               </Button>
             </div>
 
-            {/* Water Polo Court Heatmap */}
+            {/* Formation Toggle */}
+            <div className="mb-6 flex items-center justify-center gap-3">
+              <span className="text-gray-700 font-medium">Formation:</span>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setFormation('4-2')}
+                  variant={formation === '4-2' ? 'default' : 'outline'}
+                  className={formation === '4-2' ? 'bg-[#022851] text-white' : 'border-gray-300'}
+                  size="sm"
+                >
+                  4-2
+                  <Badge className="ml-2 bg-white text-[#022851]">
+                    {heatmapData[pendingAction.team].filter(s => s.formation === '4-2').length}
+                  </Badge>
+                </Button>
+                <Button
+                  onClick={() => setFormation('3-3')}
+                  variant={formation === '3-3' ? 'default' : 'outline'}
+                  className={formation === '3-3' ? 'bg-[#022851] text-white' : 'border-gray-300'}
+                  size="sm"
+                >
+                  3-3
+                  <Badge className="ml-2 bg-white text-[#022851]">
+                    {heatmapData[pendingAction.team].filter(s => s.formation === '3-3').length}
+                  </Badge>
+                </Button>
+              </div>
+            </div>
+
+            {/* Water Polo Court with Pin Drop */}
             <div className="max-w-3xl mx-auto">
               {/* Opponent Goal */}
               <div className="text-center mb-3">
@@ -1376,99 +1934,86 @@ export default function LiveStatsPage() {
                 </div>
               </div>
 
-              {/* Pool Court */}
-              <div className="relative border-4 border-yellow-400 border-dashed rounded-lg overflow-hidden bg-gradient-to-b from-blue-400 to-blue-500">
+              {/* Pool Court - Interactive Pin Drop */}
+              <div 
+                className="relative border-4 border-yellow-400 border-dashed rounded-lg overflow-hidden bg-gradient-to-b from-blue-400 to-blue-500 cursor-crosshair"
+                style={{ height: '600px' }}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = ((e.clientX - rect.left) / rect.width) * 100;
+                  const y = ((e.clientY - rect.top) / rect.height) * 100;
+                  handlePinDrop(x, y);
+                }}
+              >
                 {/* Goal Line */}
-                <div className="relative h-2 bg-white/60 border-b-2 border-white">
+                <div className="absolute top-0 left-0 right-0 h-2 bg-white/60 border-b-2 border-white pointer-events-none">
                   <span className="absolute right-2 top-0 text-xs text-white font-bold">Goal Line</span>
-                </div>
-                
-                {/* Row 1: Wings */}
-                <div className="grid grid-cols-2 gap-0 border-b-4 border-red-500">
-                  {heatmapData[pendingAction.team][0].map((value, colIndex) => (
-                    <button
-                      key={colIndex}
-                      onClick={() => handleZoneSelect(0, colIndex)}
-                      className={`
-                        relative h-36 
-                        ${getHeatmapIntensity(value, pendingAction.team)}
-                        hover:scale-105 hover:shadow-2xl transition-all duration-200
-                        flex flex-col items-center justify-center
-                        cursor-pointer border-r ${colIndex === 0 ? 'border-r-white/30' : ''}
-                      `}
-                    >
-                      <div className="text-sm font-bold text-white mb-1 drop-shadow-lg">
-                        {getZoneLabel(0, colIndex)}
-                      </div>
-                      <div className="text-5xl text-white font-bold drop-shadow-lg">{value}</div>
-                    </button>
-                  ))}
                 </div>
 
                 {/* 2m Line */}
-                <div className="relative h-1 bg-red-500">
+                <div className="absolute left-0 right-0 h-1 bg-red-500 pointer-events-none" style={{ top: '15%' }}>
                   <span className="absolute right-2 -top-1 text-xs text-white font-bold drop-shadow">2m</span>
                 </div>
 
-                {/* Hole Marker */}
-                <div className="absolute left-1/2 top-[85px] transform -translate-x-1/2 z-10 pointer-events-none">
-                  <div className="w-16 h-16 bg-orange-400 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">Hole</span>
-                  </div>
-                </div>
-
-                {/* Row 2: Flats */}
-                <div className="grid grid-cols-2 gap-0 border-b-4 border-yellow-400">
-                  {heatmapData[pendingAction.team][1].map((value, colIndex) => (
-                    <button
-                      key={colIndex}
-                      onClick={() => handleZoneSelect(1, colIndex)}
-                      className={`
-                        relative h-36
-                        ${getHeatmapIntensity(value, pendingAction.team)}
-                        hover:scale-105 hover:shadow-2xl transition-all duration-200
-                        flex flex-col items-center justify-center
-                        cursor-pointer border-r ${colIndex === 0 ? 'border-r-white/30' : ''}
-                      `}
-                    >
-                      <div className="text-sm font-bold text-white mb-1 drop-shadow-lg">
-                        {getZoneLabel(1, colIndex)}
-                      </div>
-                      <div className="text-5xl text-white font-bold drop-shadow-lg">{value}</div>
-                    </button>
-                  ))}
-                </div>
-
                 {/* 5m Line */}
-                <div className="relative h-1 bg-yellow-400">
+                <div className="absolute left-0 right-0 h-1 bg-yellow-400 pointer-events-none" style={{ top: '50%' }}>
                   <span className="absolute right-2 -top-1 text-xs text-white font-bold drop-shadow">5m</span>
                 </div>
 
-                {/* Row 3: Point */}
-                <div className="grid grid-cols-1 gap-0 border-b-2 border-white/60">
-                  <button
-                    onClick={() => handleZoneSelect(2, 0)}
-                    className={`
-                      relative h-40
-                      ${getHeatmapIntensity(heatmapData[pendingAction.team][2][0], pendingAction.team)}
-                      hover:scale-105 hover:shadow-2xl transition-all duration-200
-                      flex flex-col items-center justify-center
-                      cursor-pointer
-                    `}
-                  >
-                    <div className="text-sm font-bold text-white mb-1 drop-shadow-lg">
-                      {getZoneLabel(2, 0)}
-                    </div>
-                    <div className="text-5xl text-white font-bold drop-shadow-lg">
-                      {heatmapData[pendingAction.team][2][0] + heatmapData[pendingAction.team][2][1]}
-                    </div>
-                  </button>
+                {/* 7m Line */}
+                <div className="absolute bottom-2 left-0 right-0 h-1 bg-white/60 pointer-events-none">
+                  <span className="absolute right-2 -top-1 text-xs text-white font-bold">7m</span>
                 </div>
 
-                {/* 7m Line */}
-                <div className="relative h-2 bg-white/60">
-                  <span className="absolute right-2 top-0 text-xs text-white font-bold">7m</span>
+                {/* Player Position Markers based on formation */}
+                {getPlayerPositions(formation).map((pos, idx) => (
+                  <div
+                    key={idx}
+                    className="absolute w-10 h-10 bg-white/80 border-2 border-[#022851] rounded-full flex items-center justify-center pointer-events-none shadow-lg"
+                    style={{ 
+                      left: `${pos.x}%`, 
+                      top: `${pos.y}%`,
+                      transform: 'translate(-50%, -50%)'
+                    }}
+                  >
+                    <span className="text-[#022851] text-sm font-bold">{pos.label}</span>
+                  </div>
+                ))}
+
+                {/* Hole Marker */}
+                <div className="absolute w-16 h-16 bg-orange-400 rounded-full border-4 border-white shadow-lg flex items-center justify-center pointer-events-none"
+                  style={{ 
+                    left: '50%', 
+                    top: '15%',
+                    transform: 'translate(-50%, -50%)'
+                  }}
+                >
+                  <span className="text-white text-xs font-bold">Hole</span>
                 </div>
+
+                {/* Existing Shot Pins - filtered by current formation */}
+                {heatmapData[pendingAction.team]
+                  .filter(shot => shot.formation === formation)
+                  .map((shot, idx) => {
+                    const pinColor = shot.type === 'goal' ? 'bg-green-500' : shot.type === 'assist' ? 'bg-purple-500' : 'bg-red-500';
+                    const arrowColor = shot.type === 'goal' ? '#22c55e' : shot.type === 'assist' ? '#a855f7' : '#ef4444';
+                    return (
+                      <div
+                        key={idx}
+                        className="absolute pointer-events-none"
+                        style={{ 
+                          left: `${shot.x}%`, 
+                          top: `${shot.y}%`,
+                          transform: 'translate(-50%, -100%)'
+                        }}
+                      >
+                        <div className={`w-6 h-6 rounded-full ${pinColor} border-2 border-white shadow-lg`}></div>
+                        <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] mx-auto"
+                          style={{ borderTopColor: arrowColor }}
+                        ></div>
+                      </div>
+                    );
+                  })}
               </div>
 
               {/* UC Davis Goal */}
@@ -1487,10 +2032,264 @@ export default function LiveStatsPage() {
 
               {/* Instructions */}
               <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800 text-center">
-                  <strong>💡 Click a zone on the court to record the shot location</strong>
-                </p>
+                <div className="space-y-2">
+                  <p className="text-sm text-blue-800 text-center">
+                    <strong>💡 Click anywhere on the court to drop a pin and record the shot location</strong>
+                  </p>
+                  <p className="text-xs text-blue-700 text-center">
+                    Each shot is saved with the selected formation. Toggle between formations to view shots specific to that setup.
+                  </p>
+                  <div className="flex items-center justify-center gap-4 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+                      <span className="text-gray-700">Goal</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-purple-500 border-2 border-white rounded-full"></div>
+                      <span className="text-gray-700">Assist</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-red-500 border-2 border-white rounded-full"></div>
+                      <span className="text-gray-700">Shot</span>
+                    </div>
+                  </div>
+                </div>
               </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Referee Call Modal */}
+      {showRefereeCallModal && pendingRefereeCall && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="p-6 bg-white rounded-xl shadow-2xl max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[#022851] text-xl">
+                {pendingRefereeCall.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+              </h3>
+              <Button
+                onClick={() => {
+                  setShowRefereeCallModal(false);
+                  setPendingRefereeCall(null);
+                }}
+                variant="ghost"
+                size="sm"
+              >
+                <X size={20} />
+              </Button>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              Select a player (optional) or record without a specific player
+            </p>
+
+            {/* Quick Record Button */}
+            <Button
+              onClick={() => addRefereeCall()}
+              className="w-full mb-4 bg-gray-600 hover:bg-gray-700 text-white"
+            >
+              Record Call (No Player)
+            </Button>
+
+            {/* Team Selection */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* UC Davis Players */}
+              <div>
+                <h4 className="text-[#022851] font-semibold mb-2 text-sm">UC Davis</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {ucDavisPlayerStats.map((player) => (
+                    <Button
+                      key={player.playerId}
+                      onClick={() => addRefereeCall(player.playerName, 'ucDavis')}
+                      variant="outline"
+                      className="w-full text-left justify-start text-xs border-[#FFBF00] hover:bg-[#FFBF00]/10"
+                    >
+                      {player.playerName}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Opponent Players */}
+              <div>
+                <h4 className="text-red-600 font-semibold mb-2 text-sm">Opponent</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {opponentPlayerStats.map((player) => (
+                    <Button
+                      key={player.playerId}
+                      onClick={() => addRefereeCall(player.playerName, 'opponent')}
+                      variant="outline"
+                      className="w-full text-left justify-start text-xs border-red-600 hover:bg-red-100"
+                    >
+                      {player.playerName}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Substitution Modal */}
+      {showSubModal && subTeam && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="p-6 bg-white rounded-xl shadow-2xl max-w-2xl w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-xl ${subTeam === 'ucDavis' ? 'text-[#022851]' : 'text-gray-800'}`}>
+                <ArrowLeftRight className="inline mr-2" size={24} />
+                Player Substitution - {subTeam === 'ucDavis' ? 'UC Davis' : opponentTeamName}
+              </h3>
+              <Button
+                onClick={() => {
+                  setShowSubModal(false);
+                  setFirstSelectedPlayer(null);
+                  setSecondSelectedPlayer(null);
+                  setSubTeam(null);
+                }}
+                variant="ghost"
+                size="sm"
+              >
+                <X size={20} />
+              </Button>
+            </div>
+
+            <p className="text-gray-600 mb-6">
+              Select any two players to swap their positions
+            </p>
+
+            {/* Single list showing all players */}
+            <div className="mb-6">
+              <div className="flex items-center gap-4 mb-3">
+                <h4 className="font-semibold text-gray-800">All Players</h4>
+                <div className="flex items-center gap-4 text-sm text-gray-500">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-green-500 rounded"></div>
+                    <span>In Pool</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-gray-300 rounded"></div>
+                    <span>On Bench</span>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-3">
+                {(subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats)
+                  .map((player) => {
+                    const isFirstSelected = firstSelectedPlayer === player.playerId;
+                    const isSecondSelected = secondSelectedPlayer === player.playerId;
+                    const isSelected = isFirstSelected || isSecondSelected;
+                    
+                    return (
+                      <Button
+                        key={player.playerId}
+                        onClick={() => {
+                          if (isFirstSelected) {
+                            // Deselect first player
+                            setFirstSelectedPlayer(null);
+                          } else if (isSecondSelected) {
+                            // Deselect second player
+                            setSecondSelectedPlayer(null);
+                          } else if (!firstSelectedPlayer) {
+                            // Select as first player
+                            setFirstSelectedPlayer(player.playerId);
+                          } else if (!secondSelectedPlayer) {
+                            // Select as second player
+                            setSecondSelectedPlayer(player.playerId);
+                          } else {
+                            // Both are selected, replace first selection
+                            setFirstSelectedPlayer(player.playerId);
+                            setSecondSelectedPlayer(null);
+                          }
+                        }}
+                        variant="outline"
+                        className={`w-full text-left justify-start transition-all ${
+                          isSelected
+                            ? isFirstSelected
+                              ? 'bg-blue-100 border-blue-500 text-blue-900'
+                              : 'bg-purple-100 border-purple-500 text-purple-900'
+                            : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded ${player.isActive ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                            <span>{player.playerName}</span>
+                            <span className="text-xs text-gray-500">
+                              {player.isActive ? '(In Pool)' : '(On Bench)'}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <Badge className={isFirstSelected ? 'bg-blue-500 text-white' : 'bg-purple-500 text-white'}>
+                              {isFirstSelected ? '1st' : '2nd'}
+                            </Badge>
+                          )}
+                        </div>
+                      </Button>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Swap Preview */}
+            {firstSelectedPlayer && secondSelectedPlayer && (
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-sm text-gray-600 mb-2">Swap Preview:</p>
+                <div className="flex items-center justify-center gap-4">
+                  <div className="text-center">
+                    <Badge className="bg-blue-500 text-white mb-1">Player 1</Badge>
+                    <p className="font-semibold">
+                      {(subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats)
+                        .find(p => p.playerId === firstSelectedPlayer)?.playerName}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {(subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats)
+                        .find(p => p.playerId === firstSelectedPlayer)?.isActive ? 'In Pool' : 'On Bench'}
+                    </p>
+                  </div>
+                  <ArrowLeftRight className="text-gray-400" size={24} />
+                  <div className="text-center">
+                    <Badge className="bg-purple-500 text-white mb-1">Player 2</Badge>
+                    <p className="font-semibold">
+                      {(subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats)
+                        .find(p => p.playerId === secondSelectedPlayer)?.playerName}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {(subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats)
+                        .find(p => p.playerId === secondSelectedPlayer)?.isActive ? 'In Pool' : 'On Bench'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 mt-6">
+              <Button
+                onClick={() => {
+                  setShowSubModal(false);
+                  setFirstSelectedPlayer(null);
+                  setSecondSelectedPlayer(null);
+                  setSubTeam(null);
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubstitution}
+                disabled={!firstSelectedPlayer || !secondSelectedPlayer}
+                className={`flex-1 ${
+                  subTeam === 'ucDavis'
+                    ? 'bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]'
+                    : 'bg-gray-700 hover:bg-gray-800 text-white'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <ArrowLeftRight className="mr-2" size={16} />
+                Confirm Swap
+              </Button>
             </div>
           </Card>
         </div>
