@@ -30,6 +30,7 @@ import { toast } from 'sonner@2.0.3';
 interface PlayerStat {
   playerId: number;
   playerName: string;
+  jerseyNumber: number;
   shots: number;
   goals: number;
   penalties: number;
@@ -166,32 +167,42 @@ export default function LiveStatsPage() {
   // Player notes state
   const [currentNote, setCurrentNote] = useState('');
   
+  // Ejection state - tracks active ejections with timers
+  interface ActiveEjection {
+    playerId: number;
+    playerName: string;
+    team: 'ucDavis' | 'opponent';
+    timeRemaining: number; // seconds
+    startTime: number; // game time when ejection started
+  }
+  const [activeEjections, setActiveEjections] = useState<ActiveEjection[]>([]);
+  
   // UC Davis player roster (7 in pool, rest on bench)
   const ucDavisPlayers: PlayerStat[] = [
-    { playerId: 1, playerName: 'Alex Martinez', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 2, playerName: 'Jake Thompson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 3, playerName: 'Ryan Chen', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 4, playerName: 'Marcus Wilson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 5, playerName: 'David Kim', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 6, playerName: 'Brandon Lee', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 7, playerName: 'Chris Anderson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 8, playerName: 'Tyler Johnson', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
-    { playerId: 9, playerName: 'Noah Parker', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
-    { playerId: 10, playerName: 'Ethan Rodriguez', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 1, playerName: 'Alex Martinez', jerseyNumber: 1, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 2, playerName: 'Jake Thompson', jerseyNumber: 2, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 3, playerName: 'Ryan Chen', jerseyNumber: 3, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 4, playerName: 'Marcus Wilson', jerseyNumber: 4, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 5, playerName: 'David Kim', jerseyNumber: 5, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 6, playerName: 'Brandon Lee', jerseyNumber: 6, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 7, playerName: 'Chris Anderson', jerseyNumber: 7, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 8, playerName: 'Tyler Johnson', jerseyNumber: 8, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 9, playerName: 'Noah Parker', jerseyNumber: 9, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 10, playerName: 'Ethan Rodriguez', jerseyNumber: 10, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
   ];
 
   // Opponent player roster (7 in pool, rest on bench)
   const opponentPlayers: PlayerStat[] = [
-    { playerId: 101, playerName: 'Opponent #1', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 102, playerName: 'Opponent #2', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 103, playerName: 'Opponent #3', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 104, playerName: 'Opponent #4', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 105, playerName: 'Opponent #5', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 106, playerName: 'Opponent #6', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 107, playerName: 'Opponent #7', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
-    { playerId: 108, playerName: 'Opponent #8', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
-    { playerId: 109, playerName: 'Opponent #9', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
-    { playerId: 110, playerName: 'Opponent #10', shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 101, playerName: 'Opponent #1', jerseyNumber: 1, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 102, playerName: 'Opponent #2', jerseyNumber: 2, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 103, playerName: 'Opponent #3', jerseyNumber: 3, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 104, playerName: 'Opponent #4', jerseyNumber: 4, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 105, playerName: 'Opponent #5', jerseyNumber: 5, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 106, playerName: 'Opponent #6', jerseyNumber: 6, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 107, playerName: 'Opponent #7', jerseyNumber: 7, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: true, notes: [] },
+    { playerId: 108, playerName: 'Opponent #8', jerseyNumber: 8, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 109, playerName: 'Opponent #9', jerseyNumber: 9, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
+    { playerId: 110, playerName: 'Opponent #10', jerseyNumber: 10, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
   ];
 
   const [ucDavisPlayerStats, setUcDavisPlayerStats] = useState<PlayerStat[]>(ucDavisPlayers);
@@ -214,6 +225,11 @@ export default function LiveStatsPage() {
   // Determine which team's players to show based on possession
   const activePlayerStats = currentPossession === 'opponent' ? opponentPlayerStats : ucDavisPlayerStats;
   const activeTeamName = currentPossession === 'opponent' ? 'Opponent' : 'UC Davis';
+
+  // Helper function to check if a player is currently ejected
+  const isPlayerEjected = (playerId: number, team: 'ucDavis' | 'opponent'): ActiveEjection | undefined => {
+    return activeEjections.find(ej => ej.playerId === playerId && ej.team === team);
+  };
 
   // Initialize history
   useEffect(() => {
@@ -523,7 +539,7 @@ export default function LiveStatsPage() {
 
   useEffect(() => {
     let possessionInterval: NodeJS.Timeout | null = null;
-    if (isPossessionActive && currentPossession) {
+    if (isPossessionActive && currentPossession && isGameActive && !isPaused && !isInBreak) {
       possessionInterval = setInterval(() => {
         setTeamStats(prev => ({
           ...prev,
@@ -537,7 +553,38 @@ export default function LiveStatsPage() {
         clearInterval(possessionInterval);
       }
     };
-  }, [isPossessionActive, currentPossession]);
+  }, [isPossessionActive, currentPossession, isGameActive, isPaused, isInBreak]);
+
+  // Ejection timer countdown effect
+  useEffect(() => {
+    let ejectionInterval: NodeJS.Timeout | null = null;
+    if (isGameActive && !isPaused && !isInBreak && activeEjections.length > 0) {
+      ejectionInterval = setInterval(() => {
+        setActiveEjections(prev => {
+          const updated = prev.map(ejection => ({
+            ...ejection,
+            timeRemaining: Math.max(0, ejection.timeRemaining - 1)
+          }));
+          
+          // Remove expired ejections
+          const stillActive = updated.filter(ej => ej.timeRemaining > 0);
+          
+          // Check if any ejections expired
+          const expired = updated.filter(ej => ej.timeRemaining === 0);
+          expired.forEach(ej => {
+            toast.info(`${ej.playerName} ejection expired - can return to play`);
+          });
+          
+          return stillActive;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (ejectionInterval) {
+        clearInterval(ejectionInterval);
+      }
+    };
+  }, [isGameActive, isPaused, isInBreak, activeEjections.length]);
 
   // Handle turnover - switch possession
   const handleTurnover = (playerId: number) => {
@@ -590,6 +637,15 @@ export default function LiveStatsPage() {
       setCurrentPossessionStart(newPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent);
       setIsPossessionActive(true);
       setSelectedPlayer(null); // Clear selected player when possession changes
+      
+      // Clear all active ejections when possession changes
+      if (activeEjections.length > 0) {
+        activeEjections.forEach(ej => {
+          toast.info(`${ej.playerName} ejection ended (possession change)`);
+        });
+        setActiveEjections([]);
+      }
+      
       toast.info(`${newPossession === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession started`);
     }, 500);
   };
@@ -645,6 +701,15 @@ export default function LiveStatsPage() {
       setCurrentPossessionStart(newPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent);
       setIsPossessionActive(true);
       setSelectedPlayer(null); // Clear selected player when possession changes
+      
+      // Clear all active ejections when possession changes
+      if (activeEjections.length > 0) {
+        activeEjections.forEach(ej => {
+          toast.info(`${ej.playerName} ejection ended (possession change)`);
+        });
+        setActiveEjections([]);
+      }
+      
       toast.success(`${newPossession === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession started`);
     }, 500);
   };
@@ -745,8 +810,47 @@ export default function LiveStatsPage() {
     
     saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, newRefereeCalls);
 
+    // Handle ejection - add to active ejections and increment player exclusion stat
+    if (pendingRefereeCall === 'ejection' && playerName && team) {
+      const playerStats = team === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats;
+      const player = playerStats.find(p => p.playerName === playerName);
+      
+      if (player) {
+        // Add to active ejections with 20-second timer
+        const newEjection: ActiveEjection = {
+          playerId: player.playerId,
+          playerName: player.playerName,
+          team: team,
+          timeRemaining: 20,
+          startTime: gameTime
+        };
+        setActiveEjections(prev => [...prev, newEjection]);
+        
+        // Increment player's exclusion stat
+        if (team === 'ucDavis') {
+          const newPlayerStats = ucDavisPlayerStats.map(p =>
+            p.playerId === player.playerId
+              ? { ...p, exclusions: p.exclusions + 1 }
+              : p
+          );
+          setUcDavisPlayerStats(newPlayerStats);
+        } else {
+          const newPlayerStats = opponentPlayerStats.map(p =>
+            p.playerId === player.playerId
+              ? { ...p, exclusions: p.exclusions + 1 }
+              : p
+          );
+          setOpponentPlayerStats(newPlayerStats);
+        }
+        
+        toast.warning(`${playerName} ejected for 20 seconds (or until goal/possession change)`);
+      }
+    }
+
     const callLabel = pendingRefereeCall.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    toast.success(`${callLabel} recorded${playerName ? ` - ${playerName}` : ''}`);
+    if (pendingRefereeCall !== 'ejection') {
+      toast.success(`${callLabel} recorded${playerName ? ` - ${playerName}` : ''}`);
+    }
     
     setShowRefereeCallModal(false);
     setPendingRefereeCall(null);
@@ -836,6 +940,14 @@ export default function LiveStatsPage() {
         saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - GOAL! (${formation})`);
+      
+      // Clear all active ejections when a goal is scored
+      if (activeEjections.length > 0) {
+        activeEjections.forEach(ej => {
+          toast.info(`${ej.playerName} ejection ended (goal scored)`);
+        });
+        setActiveEjections([]);
+      }
       
       // Add to possession timeline
       const currentTime = team === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
@@ -1088,6 +1200,10 @@ export default function LiveStatsPage() {
               <div className="text-3xl text-[#022851]">{formatTime(teamStats.possessionTimeUCDavis)}</div>
               <Button
                 onClick={() => {
+                  if (!isGameActive) {
+                    toast.error('Please start the game first');
+                    return;
+                  }
                   if (currentPossession === 'ucDavis') {
                     setIsPossessionActive(false);
                     setSelectedPlayer(null);
@@ -1100,6 +1216,7 @@ export default function LiveStatsPage() {
                     toast.success('UC Davis possession started');
                   }
                 }}
+                disabled={!isGameActive && currentPossession !== 'ucDavis'}
                 className={`mt-3 w-full ${
                   currentPossession === 'ucDavis' && isPossessionActive
                     ? 'bg-red-600 hover:bg-red-700 text-white'
@@ -1123,6 +1240,10 @@ export default function LiveStatsPage() {
               <div className="text-3xl">{formatTime(teamStats.possessionTimeOpponent)}</div>
               <Button
                 onClick={() => {
+                  if (!isGameActive) {
+                    toast.error('Please start the game first');
+                    return;
+                  }
                   if (currentPossession === 'opponent') {
                     setIsPossessionActive(false);
                     setSelectedPlayer(null);
@@ -1135,6 +1256,7 @@ export default function LiveStatsPage() {
                     toast.info('Opponent possession started');
                   }
                 }}
+                disabled={!isGameActive && currentPossession !== 'opponent'}
                 className={`mt-3 w-full ${
                   currentPossession === 'opponent' && isPossessionActive
                     ? 'bg-gray-900 hover:bg-gray-800'
@@ -1150,6 +1272,52 @@ export default function LiveStatsPage() {
             </Card>
           </div>
         </Card>
+
+        {/* Active Ejections Display */}
+        {activeEjections.length > 0 && (
+          <Card className="p-4 bg-orange-50 border border-orange-200 rounded-xl shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="text-orange-600" size={20} />
+              <h3 className="text-orange-900 font-semibold">Active Ejections</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {activeEjections.map((ejection) => (
+                <div
+                  key={ejection.playerId + ejection.team}
+                  className={`p-3 rounded-lg border-2 ${
+                    ejection.team === 'ucDavis'
+                      ? 'bg-[#FFBF00]/20 border-[#FFBF00]'
+                      : 'bg-red-100 border-red-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className={`font-semibold ${
+                        ejection.team === 'ucDavis' ? 'text-[#022851]' : 'text-red-900'
+                      }`}>
+                        {ejection.playerName}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        {ejection.team === 'ucDavis' ? 'UC Davis' : 'Opponent'}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`text-2xl font-bold ${
+                        ejection.team === 'ucDavis' ? 'text-[#022851]' : 'text-red-900'
+                      }`}>
+                        {ejection.timeRemaining}
+                      </div>
+                      <div className="text-xs text-gray-600">seconds</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-orange-700 mt-3 italic">
+              Ejections end after 20 seconds, when a goal is scored, or when possession changes
+            </p>
+          </Card>
+        )}
 
         {/* Team Indicator Banner */}
         {currentPossession && (
@@ -1186,30 +1354,44 @@ export default function LiveStatsPage() {
               <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
                 {ucDavisPlayerStats.map((player) => {
                   const isSelectedUCDavis = selectedPlayer === player.playerId && currentPossession === 'ucDavis';
+                  const ejection = isPlayerEjected(player.playerId, 'ucDavis');
+                  const isEjected = !!ejection;
                   return (
                     <div key={player.playerId} className="relative">
                       <Button
                         onClick={() => {
+                          if (isEjected) {
+                            toast.error(`${player.playerName} is ejected (${ejection.timeRemaining}s remaining)`);
+                            return;
+                          }
                           setSelectedPlayer(player.playerId);
                           setCurrentPossession('ucDavis');
                           toast.success(`Tracking ${player.playerName}`);
                         }}
+                        disabled={isEjected}
                         className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
-                          isSelectedUCDavis
+                          isEjected
+                            ? 'bg-orange-600 text-white border-2 border-orange-800 opacity-70 cursor-not-allowed'
+                            : isSelectedUCDavis
                             ? 'bg-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/90 ring-2 ring-[#022851] shadow-lg'
                             : player.isActive
                             ? 'bg-green-100 text-gray-700 hover:bg-green-200 border-2 border-green-500'
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
                         }`}
                       >
-                        <div className="text-2xl mb-1">
-                          {getPlayerInitials(player.playerName)}
+                        <div className="text-3xl font-bold mb-1">
+                          #{player.jerseyNumber}
                         </div>
-                        <div className="text-xs opacity-80">
-                          {player.playerName.split(' ')[0]}
+                        <div className="text-[10px] opacity-80 leading-tight text-center px-1">
+                          {player.playerName}
                         </div>
                       </Button>
-                      {player.isActive && (
+                      {isEjected && (
+                        <Badge className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs px-1 animate-pulse">
+                          {ejection.timeRemaining}s
+                        </Badge>
+                      )}
+                      {!isEjected && player.isActive && (
                         <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
                           IN
                         </Badge>
@@ -1234,30 +1416,44 @@ export default function LiveStatsPage() {
               <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
                 {opponentPlayerStats.map((player) => {
                   const isSelectedOpponent = selectedPlayer === player.playerId && currentPossession === 'opponent';
+                  const ejection = isPlayerEjected(player.playerId, 'opponent');
+                  const isEjected = !!ejection;
                   return (
                     <div key={player.playerId} className="relative">
                       <Button
                         onClick={() => {
+                          if (isEjected) {
+                            toast.error(`${player.playerName} is ejected (${ejection.timeRemaining}s remaining)`);
+                            return;
+                          }
                           setSelectedPlayer(player.playerId);
                           setCurrentPossession('opponent');
                           toast.success(`Tracking ${player.playerName}`);
                         }}
+                        disabled={isEjected}
                         className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
-                          isSelectedOpponent
+                          isEjected
+                            ? 'bg-orange-600 text-white border-2 border-orange-800 opacity-70 cursor-not-allowed'
+                            : isSelectedOpponent
                             ? 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-800 shadow-lg'
                             : player.isActive
                             ? 'bg-green-100 text-gray-700 hover:bg-green-200 border-2 border-green-500'
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
                         }`}
                       >
-                        <div className="text-2xl mb-1">
-                          #{player.playerId - 100}
+                        <div className="text-3xl font-bold mb-1">
+                          #{player.jerseyNumber}
                         </div>
-                        <div className="text-xs opacity-80">
+                        <div className="text-[10px] opacity-80 leading-tight text-center px-1">
                           {player.playerName}
                         </div>
                       </Button>
-                      {player.isActive && (
+                      {isEjected && (
+                        <Badge className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs px-1 animate-pulse">
+                          {ejection.timeRemaining}s
+                        </Badge>
+                      )}
+                      {!isEjected && player.isActive && (
                         <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
                           IN
                         </Badge>
@@ -1768,6 +1964,21 @@ export default function LiveStatsPage() {
                 <div className="space-y-3">
                   {editingUcDavisPlayers.map((player, index) => (
                     <div key={player.playerId} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="w-20">
+                        <input
+                          type="number"
+                          value={player.jerseyNumber}
+                          onChange={(e) => {
+                            const newPlayers = [...editingUcDavisPlayers];
+                            newPlayers[index].jerseyNumber = parseInt(e.target.value) || 1;
+                            setEditingUcDavisPlayers(newPlayers);
+                          }}
+                          className="w-full px-2 py-2 border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-[#FFBF00]"
+                          placeholder="#"
+                          min="1"
+                          max="99"
+                        />
+                      </div>
                       <div className="flex-1">
                         <input
                           type="text"
@@ -1781,7 +1992,7 @@ export default function LiveStatsPage() {
                           placeholder="Player Name"
                         />
                       </div>
-                      <Badge className="bg-[#022851] text-white">{player.playerId}</Badge>
+                      <Badge className="bg-[#022851] text-white">ID: {player.playerId}</Badge>
                     </div>
                   ))}
                 </div>
@@ -1807,16 +2018,17 @@ export default function LiveStatsPage() {
                     <div key={player.playerId} className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
                       <div className="w-20">
                         <input
-                          type="text"
-                          value={player.playerId - 100}
+                          type="number"
+                          value={player.jerseyNumber}
                           onChange={(e) => {
                             const newPlayers = [...editingOpponentPlayers];
-                            const newNumber = parseInt(e.target.value) || 1;
-                            newPlayers[index].playerId = 100 + newNumber;
+                            newPlayers[index].jerseyNumber = parseInt(e.target.value) || 1;
                             setEditingOpponentPlayers(newPlayers);
                           }}
                           className="w-full px-2 py-2 border border-red-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-red-600"
                           placeholder="#"
+                          min="1"
+                          max="99"
                         />
                       </div>
                       <div className="flex-1">
@@ -2215,6 +2427,7 @@ export default function LiveStatsPage() {
                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-2">
                             <div className={`w-3 h-3 rounded ${player.isActive ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                            <span className="font-semibold text-sm">#{player.jerseyNumber}</span>
                             <span>{player.playerName}</span>
                             <span className="text-xs text-gray-500">
                               {player.isActive ? '(In Pool)' : '(On Bench)'}
