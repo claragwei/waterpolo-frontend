@@ -61,7 +61,7 @@ export default function App() {
         {/* Dashboard Frame */}
         <Frame title="Dashboard" width="100%">
           <SidebarLayout currentPage="dashboard">
-            <Dashboard />
+            <Dashboard initialMatchId={1} />
           </SidebarLayout>
         </Frame>
 
@@ -96,7 +96,7 @@ export default function App() {
         {/* Live Stats Frame */}
         <Frame title="Live Stats (Coach)" width="100%">
           <SidebarLayout currentPage="live-stats">
-            <LiveStatsPage />
+            <LiveStatsPage matchId={1} />
           </SidebarLayout>
         </Frame>
       </div>

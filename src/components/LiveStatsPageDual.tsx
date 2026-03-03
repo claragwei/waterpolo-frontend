@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useMatchViewModel, usePlayerStatsViewModel, useTeamStatsViewModel, useActionViewModel } from '../hooks/useViewModels';
+import { supabase } from '../supabase/supabaseClient';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { 
@@ -103,7 +105,17 @@ interface PossessionEvent {
   event: string;
 }
 
-export default function LiveStatsPage() {
+interface LiveStatsPageProps { matchId?: number; }
+export default function LiveStatsPage({ matchId = 1 }: LiveStatsPageProps) {
+  const matchVM = useMatchViewModel();
+  const playerStatsVM = usePlayerStatsViewModel();
+  const teamStatsVM = useTeamStatsViewModel();
+  const actionVM = useActionViewModel();
+
+  const [ucDavisTeamId, setUcDavisTeamId] = useState<number | null>(null);
+  const [opponentTeamId, setOpponentTeamId] = useState<number | null>(null);
+  const [isLoadingMatch, setIsLoadingMatch] = useState(true);
+
   const [isGameActive, setIsGameActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [gameTime, setGameTime] = useState(0);
@@ -214,6 +226,66 @@ export default function LiveStatsPage() {
   // Determine which team's players to show based on possession
   const activePlayerStats = currentPossession === 'opponent' ? opponentPlayerStats : ucDavisPlayerStats;
   const activeTeamName = currentPossession === 'opponent' ? 'Opponent' : 'UC Davis';
+
+  // Load match context from Supabase on mount
+  useEffect(() => {
+    const loadMatchContext = async () => {
+      setIsLoadingMatch(true);
+
+      const match = await matchVM.getMatch(matchId);
+      if (!match) {
+        console.warn('Match not found in Supabase, falling back to dummy players');
+        toast.warning(`Match ID ${matchId} not found in database — actions will not be saved. Check Supabase or update matchId.`);
+        setIsLoadingMatch(false);
+        return;
+      }
+
+      setUcDavisTeamId(match.home_team_id);
+      setOpponentTeamId(match.away_team_id);
+
+      const { data: ucPlayers } = await supabase
+        .from('player')
+        .select('*')
+        .eq('team_id', match.home_team_id)
+        .eq('is_active', true)
+        .order('jersey_number');
+
+      const { data: oppPlayers } = await supabase
+        .from('player')
+        .select('*')
+        .eq('team_id', match.away_team_id)
+        .eq('is_active', true)
+        .order('jersey_number');
+
+      if (ucPlayers && ucPlayers.length > 0) {
+        setUcDavisPlayerStats(ucPlayers.map((p, i) => ({
+          playerId: p.id,
+          playerName: `${p.first_name} ${p.last_name}`,
+          shots: 0, goals: 0, penalties: 0, turnovers: 0,
+          rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0,
+          sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0,
+          isActive: i < 7,
+          notes: []
+        })));
+      }
+
+      if (oppPlayers && oppPlayers.length > 0) {
+        setOpponentPlayerStats(oppPlayers.map((p, i) => ({
+          playerId: p.id,
+          playerName: `${p.first_name} ${p.last_name}`,
+          shots: 0, goals: 0, penalties: 0, turnovers: 0,
+          rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0,
+          sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0,
+          isActive: i < 7,
+          notes: []
+        })));
+      }
+
+      setIsLoadingMatch(false);
+    };
+
+    loadMatchContext();
+  }, [matchId]);
 
   // Initialize history
   useEffect(() => {
@@ -404,13 +476,49 @@ export default function LiveStatsPage() {
     toast.success('Game stats reset');
   };
 
-  const handleSaveGame = () => {
+  const handleSaveGame = async () => {
+    if (ucDavisTeamId !== null) {
+      await teamStatsVM.updatePossessionTime(ucDavisTeamId, matchId, teamStats.possessionTimeUCDavis)
+        .catch(err => console.error('Failed to save UC Davis possession time:', err));
+    }
+    if (opponentTeamId !== null) {
+      await teamStatsVM.updatePossessionTime(opponentTeamId, matchId, teamStats.possessionTimeOpponent)
+        .catch(err => console.error('Failed to save opponent possession time:', err));
+    }
     toast.success('Game stats saved successfully!');
-    console.log('UC Davis Stats:', ucDavisPlayerStats);
-    console.log('Opponent Stats:', opponentPlayerStats);
-    console.log('Team Stats:', teamStats);
-    console.log('Plays:', plays);
-    console.log('Heatmap Data:', heatmapData);
+  };
+
+  // Maps PlayerStat keys → playermatchstats DB column names
+  const PLAYER_STAT_TO_DB: Partial<Record<keyof PlayerStat, string>> = {
+    shots:        'shots_attempted',
+    goals:        'goals',
+    assists:      'assists',
+    steals:       'steals',
+    turnovers:    'turnovers',
+    blocks:       'blocks',
+    rebounds:     'rebounds',
+    tippedPasses: 'tipped_passes',
+    sprints:      'sprints_won',
+    hustle:       'hustles',
+    exclusions:   'exclusions_committed',
+    draws:        'exclusions_drawn',
+    penalties:    'penalty_shots_attempted',
+  };
+
+  // Maps TeamStat keys → teammatchstats DB column names + which team
+  const TEAM_STAT_TO_DB: Partial<Record<keyof TeamStat, { field: string; team: 'ucDavis' | 'opponent' }>> = {
+    FCO:                    { field: 'fco',                           team: 'ucDavis' },
+    FCD:                    { field: 'fcd',                           team: 'ucDavis' },
+    CAO:                    { field: 'cao',                           team: 'ucDavis' },
+    CAD:                    { field: 'cad',                           team: 'ucDavis' },
+    AG:                     { field: 'ag',                            team: 'ucDavis' },
+    AGD:                    { field: 'agd',                           team: 'ucDavis' },
+    sixOnFive:              { field: 'six_on_five_opportunities',     team: 'ucDavis' },
+    fiveOnSix:              { field: 'five_on_six_opportunities',     team: 'ucDavis' },
+    sevenOnSix:             { field: 'seven_on_six_opportunities',    team: 'ucDavis' },
+    sixOnSeven:             { field: 'six_on_seven_opportunities',    team: 'ucDavis' },
+    possessionTimeUCDavis:  { field: 'total_possession_time_seconds', team: 'ucDavis' },
+    possessionTimeOpponent: { field: 'total_possession_time_seconds', team: 'opponent' },
   };
 
   const updatePlayerStat = (playerId: number, stat: keyof Omit<PlayerStat, 'playerId' | 'playerName' | 'isActive'>, increment: number = 1) => {
@@ -438,6 +546,13 @@ export default function LiveStatsPage() {
     if (player) {
       toast.success(`${player.playerName} - ${stat} ${increment > 0 ? 'added' : 'removed'}`);
     }
+
+    // Persist to Supabase
+    const dbField = PLAYER_STAT_TO_DB[stat as keyof PlayerStat];
+    if (dbField) {
+      playerStatsVM.incrementStat(playerId, matchId, dbField as any, increment)
+        .catch(err => console.error('Failed to persist player stat:', err));
+    }
   };
 
   const updateTeamStat = (stat: keyof TeamStat, increment: number = 1) => {
@@ -448,6 +563,14 @@ export default function LiveStatsPage() {
     setTeamStats(newTeamStats);
     saveToHistory(ucDavisPlayerStats, opponentPlayerStats, newTeamStats, plays, currentQuarter, heatmapData, refereeCalls);
     toast.success(`Team ${stat} ${increment > 0 ? 'incremented' : 'decremented'}`);
+
+    // Persist to Supabase
+    const mapping = TEAM_STAT_TO_DB[stat];
+    if (mapping && ucDavisTeamId !== null && opponentTeamId !== null) {
+      const teamId = mapping.team === 'ucDavis' ? ucDavisTeamId : opponentTeamId;
+      teamStatsVM.incrementStat(teamId, matchId, mapping.field as any, increment)
+        .catch(err => console.error('Failed to persist team stat:', err));
+    }
   };
 
   const updateQuarter = (newQuarter: number) => {
@@ -569,7 +692,27 @@ export default function LiveStatsPage() {
     if (player) {
       toast.error(`${player.playerName} - Turnover`);
     }
-    
+
+    // Log turnover action to Supabase
+    const turnoverTeamId = currentPossession === 'opponent' ? opponentTeamId : ucDavisTeamId;
+    if (turnoverTeamId !== null) {
+      actionVM.logAction({
+        match_id: matchId,
+        team_id: turnoverTeamId,
+        player_id: playerId,
+        action_type: 'Turnover',
+        quarter: currentQuarter,
+        game_clock_seconds: gameTime,
+        is_power_play: false,
+        is_counter_attack: false,
+      }).catch(err => {
+        console.error('Failed to log turnover:', err);
+        toast.error(`DB error (Turnover): ${err?.message ?? JSON.stringify(err)}`);
+      });
+    } else {
+      console.warn('Turnover not logged to DB: match context not loaded (team ID is null). Check that match ID', matchId, 'exists in Supabase.');
+    }
+
     // Add to possession timeline
     const currentTime = currentPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
     const duration = currentTime - currentPossessionStart;
@@ -624,7 +767,27 @@ export default function LiveStatsPage() {
     if (player) {
       toast.success(`${player.playerName} - Steal!`);
     }
-    
+
+    // Log steal action to Supabase
+    const stealTeamId = currentPossession === 'opponent' ? opponentTeamId : ucDavisTeamId;
+    if (stealTeamId !== null) {
+      actionVM.logAction({
+        match_id: matchId,
+        team_id: stealTeamId,
+        player_id: playerId,
+        action_type: 'Steal',
+        quarter: currentQuarter,
+        game_clock_seconds: gameTime,
+        is_power_play: false,
+        is_counter_attack: false,
+      }).catch(err => {
+        console.error('Failed to log steal:', err);
+        toast.error(`DB error (Steal): ${err?.message ?? JSON.stringify(err)}`);
+      });
+    } else {
+      console.warn('Steal not logged to DB: match context not loaded (team ID is null). Check that match ID', matchId, 'exists in Supabase.');
+    }
+
     // Add to possession timeline
     const currentTime = currentPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
     const duration = currentTime - currentPossessionStart;
@@ -821,6 +984,29 @@ export default function LiveStatsPage() {
         saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - Shot recorded (${formation})`);
+
+      // Log shot action to Supabase
+      const shotTeamId = team === 'ucDavis' ? ucDavisTeamId : opponentTeamId;
+      if (shotTeamId !== null) {
+        actionVM.logAction({
+          match_id: matchId,
+          team_id: shotTeamId,
+          player_id: playerId,
+          action_type: 'Shot',
+          quarter: currentQuarter,
+          game_clock_seconds: gameTime,
+          coordinate_x: x,
+          coordinate_y: y,
+          result: 'Attempted',
+          is_power_play: false,
+          is_counter_attack: false,
+        }).catch(err => {
+          console.error('Failed to log shot action:', err);
+          toast.error(`DB error (Shot): ${err?.message ?? JSON.stringify(err)}`);
+        });
+      } else {
+        console.warn('Shot not logged to DB: match context not loaded (team ID is null). Check that match ID', matchId, 'exists in Supabase.');
+      }
     } else if (type === 'goal') {
       if (team === 'opponent') {
         const newPlayerStats = opponentPlayerStats.map(p => 
@@ -836,7 +1022,30 @@ export default function LiveStatsPage() {
         saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - GOAL! (${formation})`);
-      
+
+      // Log goal action to Supabase
+      const goalTeamId = team === 'ucDavis' ? ucDavisTeamId : opponentTeamId;
+      if (goalTeamId !== null) {
+        actionVM.logAction({
+          match_id: matchId,
+          team_id: goalTeamId,
+          player_id: playerId,
+          action_type: 'Goal',
+          quarter: currentQuarter,
+          game_clock_seconds: gameTime,
+          coordinate_x: x,
+          coordinate_y: y,
+          result: 'Made',
+          is_power_play: false,
+          is_counter_attack: false,
+        }).catch(err => {
+          console.error('Failed to log goal action:', err);
+          toast.error(`DB error (Goal): ${err?.message ?? JSON.stringify(err)}`);
+        });
+      } else {
+        console.warn('Goal not logged to DB: match context not loaded (team ID is null). Check that match ID', matchId, 'exists in Supabase.');
+      }
+
       // Add to possession timeline
       const currentTime = team === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
       const duration = currentTime - currentPossessionStart;
@@ -878,6 +1087,28 @@ export default function LiveStatsPage() {
         saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - Assist! (${formation})`);
+
+      // Log assist action to Supabase
+      const assistTeamId = team === 'ucDavis' ? ucDavisTeamId : opponentTeamId;
+      if (assistTeamId !== null) {
+        actionVM.logAction({
+          match_id: matchId,
+          team_id: assistTeamId,
+          player_id: playerId,
+          action_type: 'Assist',
+          quarter: currentQuarter,
+          game_clock_seconds: gameTime,
+          coordinate_x: x,
+          coordinate_y: y,
+          is_power_play: false,
+          is_counter_attack: false,
+        }).catch(err => {
+          console.error('Failed to log assist action:', err);
+          toast.error(`DB error (Assist): ${err?.message ?? JSON.stringify(err)}`);
+        });
+      } else {
+        console.warn('Assist not logged to DB: match context not loaded (team ID is null). Check that match ID', matchId, 'exists in Supabase.');
+      }
     }
 
     setHeatmapData(newHeatmapData);
