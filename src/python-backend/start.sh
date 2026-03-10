@@ -1,64 +1,53 @@
 #!/bin/bash
-# Quick start script for Python backend
+set -e
 
 echo "🏊 UC Davis Water Polo API - Quick Start"
 echo "========================================"
 
-# Check if Python is installed
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3.9+"
+PYTHON_BIN=python3.12
+
+# Check Python 3.12
+if ! command -v $PYTHON_BIN &> /dev/null; then
+    echo "❌ Python 3.12 is not installed."
+    echo "Install it with:"
+    echo "brew install python@3.12"
     exit 1
 fi
 
-echo "✅ Python found: $(python3 --version)"
+echo "✅ Using $($PYTHON_BIN --version)"
 
-# Check if pip is installed
-if ! command -v pip &> /dev/null; then
-    echo "❌ pip is not installed. Please install pip"
-    exit 1
-fi
-
-echo "✅ pip found"
-
-# Create virtual environment
+# Create venv if needed
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."
-    python3 -m venv venv
-    echo "✅ Virtual environment created"
-else
-    echo "✅ Virtual environment already exists"
+    $PYTHON_BIN -m venv venv
 fi
 
-# Activate virtual environment
+# Activate venv
 echo "🔧 Activating virtual environment..."
-source venv/bin/activate || . venv/Scripts/activate
+source venv/bin/activate
+
+# Upgrade pip inside venv
+echo "⬆️ Updating pip..."
+python -m pip install --upgrade pip
 
 # Install dependencies
 echo "📥 Installing dependencies..."
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
-# Check if .env exists
+# Setup env file
 if [ ! -f ".env" ]; then
-    echo "⚙️  Creating .env file from example..."
+    echo "⚙️ Creating .env file..."
     cp .env.example .env
-    echo "⚠️  Please update .env with your database credentials"
-    echo "   Edit the DATABASE_URL in .env file"
-    read -p "Press Enter when you've updated .env..."
+    echo "⚠️ Update DATABASE_URL in .env before continuing"
+    read -p "Press Enter after updating .env..."
 fi
 
-# Create tables and seed data
-echo "🗄️  Creating database tables and seeding data..."
+# Initialize database
+echo "🗄️ Creating database tables..."
 python models.py
 
-if [ $? -eq 0 ]; then
-    echo "✅ Database initialized successfully!"
-    echo ""
-    echo "🚀 Starting API server..."
-    echo "   API will be available at: http://localhost:8000"
-    echo "   Docs available at: http://localhost:8000/docs"
-    echo ""
-    python main.py
-else
-    echo "❌ Database initialization failed. Please check your DATABASE_URL in .env"
-    exit 1
-fi
+echo "🚀 Starting API server..."
+echo "API: http://localhost:8000"
+echo "Docs: http://localhost:8000/docs"
+
+python main.py
