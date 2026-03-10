@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { api } from '../services/api';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { 
@@ -105,6 +106,7 @@ interface PossessionEvent {
 }
 
 export default function LiveStatsPage() {
+  const [matchId, setMatchId] = useState<number | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [gameTime, setGameTime] = useState(0);
@@ -376,10 +378,24 @@ export default function LiveStatsPage() {
     return names.map(n => n[0]).join('').toUpperCase();
   };
 
-  const handleStartGame = () => {
-    setIsGameActive(true);
-    setIsPaused(false);
-    toast.success('Game started! Good luck Aggies!');
+  const handleStartGame = async () => {
+    try {
+      const match = await api.createMatch({
+        uc_davis_team_id: 1, // Default team IDs
+        opponent_team_id: 2,
+        match_date: new Date().toISOString(),
+        location: 'UC Davis Aquatic Center'
+      });
+      setMatchId(match.id);
+      setIsGameActive(true);
+      setIsPaused(false);
+      toast.success('Game started! Good luck Aggies!');
+    } catch (error) {
+      console.error('Failed to create match:', error);
+      toast.error('Failed to start game on server, using local mode');
+      setIsGameActive(true);
+      setIsPaused(false);
+    }
   };
 
   const handlePauseGame = () => {
@@ -429,13 +445,13 @@ export default function LiveStatsPage() {
     console.log('Heatmap Data:', heatmapData);
   };
 
-  const updatePlayerStat = (playerId: number, stat: keyof Omit<PlayerStat, 'playerId' | 'playerName' | 'isActive'>, increment: number = 1) => {
+  const updatePlayerStat = async (playerId: number, stat: keyof Omit<PlayerStat, 'playerId' | 'playerName' | 'isActive'>, increment: number = 1) => {
     const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
     
     if (team === 'opponent') {
       const newPlayerStats = opponentPlayerStats.map(p => 
         p.playerId === playerId 
-          ? { ...p, [stat]: Math.max(0, p[stat as keyof PlayerStat] as number + increment) }
+          ? { ...p, [stat]: Math.max(0, (p[stat as keyof PlayerStat] as number) + increment) }
           : p
       );
       setOpponentPlayerStats(newPlayerStats);
@@ -443,11 +459,20 @@ export default function LiveStatsPage() {
     } else {
       const newPlayerStats = ucDavisPlayerStats.map(p => 
         p.playerId === playerId 
-          ? { ...p, [stat]: Math.max(0, p[stat as keyof PlayerStat] as number + increment) }
+          ? { ...p, [stat]: Math.max(0, (p[stat as keyof PlayerStat] as number) + increment) }
           : p
       );
       setUcDavisPlayerStats(newPlayerStats);
       saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    }
+
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.updateMatchStats(matchId, playerId, { [stat]: increment });
+      } catch (error) {
+        console.error('Failed to sync player stat:', error);
+      }
     }
 
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -456,13 +481,29 @@ export default function LiveStatsPage() {
     }
   };
 
-  const updateTeamStat = (stat: keyof TeamStat, increment: number = 1) => {
+  const updateTeamStat = async (stat: keyof TeamStat, increment: number = 1) => {
     const newTeamStats = {
       ...teamStats,
       [stat]: Math.max(0, teamStats[stat] + increment)
     };
     setTeamStats(newTeamStats);
     saveToHistory(ucDavisPlayerStats, opponentPlayerStats, newTeamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.createPlay(matchId, {
+          event_type: 'team_stat',
+          stat_name: stat,
+          value: increment,
+          quarter: currentQuarter,
+          game_time: gameTime
+        });
+      } catch (error) {
+        console.error('Failed to sync team stat:', error);
+      }
+    }
+
     toast.success(`Team ${stat} ${increment > 0 ? 'incremented' : 'decremented'}`);
   };
 
@@ -587,7 +628,7 @@ export default function LiveStatsPage() {
   }, [isGameActive, isPaused, isInBreak, activeEjections.length]);
 
   // Handle turnover - switch possession
-  const handleTurnover = (playerId: number) => {
+  const handleTurnover = async (playerId: number) => {
     if (isPossessionActive) {
       setIsPossessionActive(false);
     }
@@ -610,6 +651,21 @@ export default function LiveStatsPage() {
       );
       setUcDavisPlayerStats(newPlayerStats);
       saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    }
+
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.updateMatchStats(matchId, playerId, { turnovers: 1 });
+        await api.createPlay(matchId, {
+          player_id: playerId,
+          quarter: currentQuarter,
+          game_time: gameTime,
+          event_type: 'turnover'
+        });
+      } catch (error) {
+        console.error('Failed to sync turnover:', error);
+      }
     }
     
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -651,7 +707,7 @@ export default function LiveStatsPage() {
   };
 
   // Handle steal - switch possession
-  const handleSteal = (playerId: number) => {
+  const handleSteal = async (playerId: number) => {
     if (isPossessionActive) {
       setIsPossessionActive(false);
     }
@@ -674,6 +730,21 @@ export default function LiveStatsPage() {
       );
       setUcDavisPlayerStats(newPlayerStats);
       saveToHistory(newPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
+    }
+
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.updateMatchStats(matchId, playerId, { steals: 1 });
+        await api.createPlay(matchId, {
+          player_id: playerId,
+          quarter: currentQuarter,
+          game_time: gameTime,
+          event_type: 'steal'
+        });
+      } catch (error) {
+        console.error('Failed to sync steal:', error);
+      }
     }
     
     const player = activePlayerStats.find(p => p.playerId === playerId);
@@ -785,7 +856,7 @@ export default function LiveStatsPage() {
   };
 
   // Add referee call with player/team selection
-  const addRefereeCall = (playerName?: string, team?: 'ucDavis' | 'opponent') => {
+  const addRefereeCall = async (playerName?: string, team?: 'ucDavis' | 'opponent') => {
     if (!pendingRefereeCall) return;
 
     const timestamp = `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')}`;
@@ -801,6 +872,22 @@ export default function LiveStatsPage() {
 
     const newRefereeCalls = [...refereeCalls, newCall];
     setRefereeCalls(newRefereeCalls);
+    
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.createPlay(matchId, {
+          event_type: 'referee_call',
+          call_type: pendingRefereeCall,
+          player_name: playerName,
+          team: team,
+          quarter: currentQuarter,
+          game_time: gameTime
+        });
+      } catch (error) {
+        console.error('Failed to sync referee call:', error);
+      }
+    }
     
     // Increment the counter for this call type
     setRefereeCallCounts(prev => ({
@@ -857,7 +944,7 @@ export default function LiveStatsPage() {
   };
 
   // Handle player substitution
-  const handleSubstitution = () => {
+  const handleSubstitution = async () => {
     if (!firstSelectedPlayer || !secondSelectedPlayer || !subTeam) {
       toast.error('Please select two players to swap');
       return;
@@ -891,6 +978,22 @@ export default function LiveStatsPage() {
       saveToHistory(ucDavisPlayerStats, newPlayerStats, teamStats, plays, currentQuarter, heatmapData, refereeCalls);
     }
     
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        await api.createPlay(matchId, {
+          event_type: 'substitution',
+          player_in_id: secondSelectedPlayer, // assuming second is coming in
+          player_out_id: firstSelectedPlayer,
+          team: subTeam,
+          quarter: currentQuarter,
+          game_time: gameTime
+        });
+      } catch (error) {
+        console.error('Failed to sync substitution:', error);
+      }
+    }
+    
     toast.success(`Swapped: ${player1.playerName} ↔ ${player2.playerName}`);
     
     setShowSubModal(false);
@@ -900,7 +1003,7 @@ export default function LiveStatsPage() {
   };
 
   // Handle pin-drop selection in heatmap modal
-  const handlePinDrop = (x: number, y: number) => {
+  const handlePinDrop = async (x: number, y: number) => {
     if (!pendingAction) return;
 
     const { type, playerId, playerName, team } = pendingAction;
@@ -908,6 +1011,34 @@ export default function LiveStatsPage() {
     // Add shot location to heatmap data with formation and type
     const newHeatmapData = { ...heatmapData };
     newHeatmapData[team] = [...newHeatmapData[team], { x, y, type, formation }];
+
+    // Sync with backend if match is active
+    if (matchId) {
+      try {
+        const statUpdate: any = {};
+        if (type === 'goal') {
+          statUpdate.goals = 1;
+          statUpdate.shots = 1;
+        } else if (type === 'shot') {
+          statUpdate.shots = 1;
+        } else if (type === 'assist') {
+          statUpdate.assists = 1;
+        }
+        
+        await api.updateMatchStats(matchId, playerId, statUpdate);
+        await api.createPlay(matchId, {
+          player_id: playerId,
+          quarter: currentQuarter,
+          game_time: gameTime,
+          event_type: type,
+          x_coordinate: x,
+          y_coordinate: y,
+          formation: formation
+        });
+      } catch (error) {
+        console.error(`Failed to sync ${type}:`, error);
+      }
+    }
 
     // Update player stats
     if (type === 'shot') {

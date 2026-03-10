@@ -58,6 +58,15 @@ export const api = {
     return res.json();
   },
 
+  async createPlay(matchId: number, playData: any) {
+    const res = await fetch(`${API_BASE}/matches/${matchId}/plays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(playData)
+    });
+    return res.json();
+  },
+
   // Statistics
   async getPlayerAverages(playerId: number) {
     const res = await fetch(`${API_BASE}/players/${playerId}/averages`);
