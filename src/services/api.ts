@@ -1,109 +1,119 @@
-import { useState, useEffect } from 'react';
-
-const API_BASE = 'http://localhost:8000/api';
-
-export interface Player {
+interface Team {
   id: number;
   name: string;
-  jersey_number: number;
-  team_id: number;
-  is_active: boolean;
-  total_goals: number;
-  total_assists: number;
-  total_shots: number;
-  // ... other fields
+  short_name: string;
+  is_uc_davis: boolean;
+  created_at?: string;
 }
 
-// API client
-export const api = {
-  // Players
-  async getPlayers(teamId?: number) {
-    const url = teamId 
-      ? `${API_BASE}/players?team_id=${teamId}`
-      : `${API_BASE}/players`;
-    const res = await fetch(url);
-    return res.json();
-  },
+interface Match {
+  id: number;
+  uc_davis_team_id: number;
+  opponent_team_id: number;
+  match_date: string;
+  location?: string;
+  uc_davis_score: number;
+  opponent_score: number;
+  status: string;
+  current_quarter: number;
+  game_time?: string;
+  referee_name?: string;
+  created_at?: string;
+}
 
-  async getPlayer(id: number) {
-    const res = await fetch(`${API_BASE}/players/${id}`);
-    return res.json();
-  },
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const API_KEY  = import.meta.env.VITE_API_KEY  ?? '';
 
-  async updatePlayer(id: number, data: Partial<Player>) {
-    const res = await fetch(`${API_BASE}/players/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return res.json();
-  },
-
-  // Matches
-  async createMatch(data: any) {
-    const res = await fetch(`${API_BASE}/matches`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return res.json();
-  },
-
-  async updateMatchStats(matchId: number, playerId: number, stats: any) {
-    const res = await fetch(`${API_BASE}/matches/${matchId}/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ player_id: playerId, ...stats })
-    });
-    return res.json();
-  },
-
-  async createPlay(matchId: number, playData: any) {
-    const res = await fetch(`${API_BASE}/matches/${matchId}/plays`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(playData)
-    });
-    return res.json();
-  },
-
-  // Statistics
-  async getPlayerAverages(playerId: number) {
-    const res = await fetch(`${API_BASE}/players/${playerId}/averages`);
-    return res.json();
-  },
-
-  async getTeamStats(teamId: number) {
-    const res = await fetch(`${API_BASE}/teams/${teamId}/stats`);
-    return res.json();
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? `API error ${res.status}`);
   }
+  return res.json();
+}
+
+export const api = {
+  // --- Players ---
+  getPlayers: (params?: { team_id?: number; is_active?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.team_id !== undefined) qs.set('team_id', String(params.team_id));
+    if (params?.is_active !== undefined) qs.set('is_active', String(params.is_active));
+    const q = qs.toString();
+    return apiFetch<{ id: number; name: string; jersey_number: number; position: string | null; is_active: boolean; team_id: number }[]>(
+      `/api/players${q ? `?${q}` : ''}`,
+    );
+  },
+  createPlayer: (body: { team_id: number; name: string; jersey_number: number; position?: string; is_active?: boolean }) =>
+    apiFetch<{ id: number; name: string; jersey_number: number; position: string | null; is_active: boolean; team_id: number }>(
+      '/api/players',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  // --- Teams ---
+  getTeams: (params?: { name?: string }) => {
+    const qs = params?.name ? `?name=${encodeURIComponent(params.name)}` : '';
+    return apiFetch<Team[]>(`/api/teams${qs}`);
+  },
+  createTeam: (body: { name: string; short_name: string; is_uc_davis: boolean }) =>
+    apiFetch<Team>('/api/teams', { method: 'POST', body: JSON.stringify(body) }),
+
+  // --- Matches ---
+  createMatch: (body: {
+    uc_davis_team_id: number;
+    opponent_team_id: number;
+    match_date: string;
+    location: string;
+  }) => apiFetch<Match>('/api/matches', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateMatch: (matchId: number, body: Partial<{
+    status: string;
+    uc_davis_score: number;
+    opponent_score: number;
+    current_quarter: number;
+    game_time: string;
+    referee_name: string;
+  }>) => apiFetch<Match>(`/api/matches/${matchId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+
+  // --- Stats ---
+  // NOTE: backend upserts by (match, player) and increments by the delta values
+  updateMatchStats: (matchId: number, playerId: number, delta: Record<string, number>) =>
+    apiFetch(`/api/matches/${matchId}/stats`, {
+      method: 'POST',
+      body: JSON.stringify({ player_id: playerId, ...delta }),
+    }),
+
+  // Full-row overwrite used by handleSaveGame — backend should replace, not increment
+  upsertMatchStats: (matchId: number, playerId: number, stats: Record<string, number>) =>
+    apiFetch(`/api/matches/${matchId}/stats`, {
+      method: 'PUT',                          // PUT = full overwrite, POST = delta increment
+      body: JSON.stringify({ player_id: playerId, ...stats }),
+    }),
+
+  // --- Plays ---
+  createPlay: (matchId: number, play: Record<string, unknown>) =>
+    apiFetch(`/api/matches/${matchId}/plays`, {
+      method: 'POST',
+      body: JSON.stringify(play),
+    }),
+
+  // --- Referee calls ---
+  createRefereeCall: (matchId: number, call: Record<string, unknown>) =>
+    apiFetch(`/api/matches/${matchId}/referee-calls`, {
+      method: 'POST',
+      body: JSON.stringify(call),
+    }),
+
+  // --- Notes ---
+  createNote: (matchId: number, note: Record<string, unknown>) =>
+    apiFetch(`/api/matches/${matchId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(note),
+    }),
 };
-
-// React hooks
-export function usePlayers(teamId?: number) {
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getPlayers(teamId)
-      .then(setPlayers)
-      .finally(() => setLoading(false));
-  }, [teamId]);
-
-  return { players, loading };
-}
-
-export function usePlayerStats(playerId: number) {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (playerId) {
-      api.getPlayerAverages(playerId)
-        .then(setStats)
-        .finally(() => setLoading(false));
-    }
-  }, [playerId]);
-
-  return { stats, loading };
-}

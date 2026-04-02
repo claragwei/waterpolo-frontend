@@ -1,0 +1,334 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.actions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  match_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  player_id uuid,
+  possession_id uuid,
+  action_type character varying NOT NULL,
+  quarter integer NOT NULL,
+  game_clock_seconds numeric,
+  timestamp timestamp with time zone DEFAULT now(),
+  zone character varying,
+  coordinate_x numeric,
+  coordinate_y numeric,
+  result character varying,
+  assist_player_id uuid,
+  related_play_id uuid,
+  is_power_play boolean DEFAULT false,
+  is_counter_attack boolean DEFAULT false,
+  formation character varying,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT actions_pkey PRIMARY KEY (id),
+  CONSTRAINT actions_possession_id_fkey FOREIGN KEY (possession_id) REFERENCES public.possessions(id),
+  CONSTRAINT actions_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.matches(id),
+  CONSTRAINT actions_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id),
+  CONSTRAINT actions_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.players(id),
+  CONSTRAINT actions_assist_player_id_fkey FOREIGN KEY (assist_player_id) REFERENCES public.players(id),
+  CONSTRAINT actions_related_play_id_fkey FOREIGN KEY (related_play_id) REFERENCES public.plays(id)
+);
+CREATE TABLE public.lineup_aggregate_data (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT lineup_aggregate_data_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.lineups (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  team_id uuid,
+  CONSTRAINT lineups_pkey PRIMARY KEY (id),
+  CONSTRAINT lineups_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.lineups_stints (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT lineups_stints_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.match (
+  id integer NOT NULL DEFAULT nextval('match_id_seq'::regclass),
+  uc_davis_team_id integer NOT NULL,
+  opponent_team_id integer NOT NULL,
+  match_date timestamp without time zone NOT NULL,
+  location character varying,
+  uc_davis_score integer NOT NULL,
+  opponent_score integer NOT NULL,
+  status character varying NOT NULL,
+  current_quarter integer NOT NULL,
+  game_time character varying,
+  referee_name character varying,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT match_pkey PRIMARY KEY (id),
+  CONSTRAINT match_uc_davis_team_id_fkey FOREIGN KEY (uc_davis_team_id) REFERENCES public.team(id),
+  CONSTRAINT match_opponent_team_id_fkey FOREIGN KEY (opponent_team_id) REFERENCES public.team(id)
+);
+CREATE TABLE public.match_plays (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  match_id uuid NOT NULL,
+  play_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  quarter integer NOT NULL,
+  timestamp_seconds numeric,
+  is_successful boolean DEFAULT false,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT match_plays_pkey PRIMARY KEY (id),
+  CONSTRAINT match_plays_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.matches(id),
+  CONSTRAINT match_plays_play_id_fkey FOREIGN KEY (play_id) REFERENCES public.plays(id),
+  CONSTRAINT match_plays_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.matches (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  home_team_id uuid NOT NULL,
+  away_team_id uuid NOT NULL,
+  match_date timestamp with time zone NOT NULL,
+  location character varying,
+  home_score integer DEFAULT 0,
+  away_score integer DEFAULT 0,
+  quarter_scores jsonb,
+  match_type character varying NOT NULL,
+  status character varying DEFAULT 'Scheduled'::character varying,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT matches_pkey PRIMARY KEY (id),
+  CONSTRAINT matches_home_team_id_fkey FOREIGN KEY (home_team_id) REFERENCES public.teams(id),
+  CONSTRAINT matches_away_team_id_fkey FOREIGN KEY (away_team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.opponent_profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  team_id uuid NOT NULL UNIQUE,
+  avg_goals_per_game numeric,
+  avg_goals_allowed numeric,
+  formations_frequency jsonb,
+  play_calls_frequency jsonb,
+  shot_chart_hotspots jsonb,
+  strengths text,
+  weaknesses text,
+  key_players jsonb,
+  last_analysis_date timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT opponent_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT opponent_profiles_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.playbyplay (
+  id integer NOT NULL DEFAULT nextval('playbyplay_id_seq'::regclass),
+  match_id integer NOT NULL,
+  quarter integer NOT NULL,
+  game_time integer NOT NULL,
+  event_type character varying NOT NULL,
+  player_id integer,
+  team_id integer,
+  x_coordinate real,
+  y_coordinate real,
+  formation character varying,
+  call_type character varying,
+  player_name character varying,
+  player_in_id integer,
+  player_out_id integer,
+  stat_name character varying,
+  value integer,
+  notes text,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT playbyplay_pkey PRIMARY KEY (id),
+  CONSTRAINT playbyplay_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.match(id),
+  CONSTRAINT playbyplay_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.player(id),
+  CONSTRAINT playbyplay_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.team(id)
+);
+CREATE TABLE public.player (
+  id integer NOT NULL DEFAULT nextval('player_id_seq'::regclass),
+  team_id integer NOT NULL,
+  name character varying NOT NULL,
+  jersey_number integer NOT NULL,
+  position character varying,
+  is_active boolean NOT NULL,
+  total_goals integer NOT NULL,
+  total_assists integer NOT NULL,
+  total_shots integer NOT NULL,
+  total_steals integer NOT NULL,
+  total_blocks integer NOT NULL,
+  total_turnovers integer NOT NULL,
+  total_exclusions integer NOT NULL,
+  total_penalties integer NOT NULL,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT player_pkey PRIMARY KEY (id),
+  CONSTRAINT player_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.team(id)
+);
+CREATE TABLE public.player_match_stats (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  player_id uuid NOT NULL,
+  match_id uuid NOT NULL,
+  shots_attempted integer DEFAULT 0,
+  goals integer DEFAULT 0,
+  assists integer DEFAULT 0,
+  turnovers integer DEFAULT 0,
+  steals integer DEFAULT 0,
+  blocks integer DEFAULT 0,
+  rebounds integer DEFAULT 0,
+  tipped_passes integer DEFAULT 0,
+  sprints_won integer DEFAULT 0,
+  sprints_attempted integer DEFAULT 0,
+  hustles integer DEFAULT 0,
+  fouls_committed integer DEFAULT 0,
+  exclusions_committed integer DEFAULT 0,
+  exclusions_drawn integer DEFAULT 0,
+  penalty_fouls_committed integer DEFAULT 0,
+  power_play_goals integer DEFAULT 0,
+  penalty_shots_made integer DEFAULT 0,
+  penalty_shots_attempted integer DEFAULT 0,
+  saves integer,
+  goals_allowed integer,
+  minutes_played numeric DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT player_match_stats_pkey PRIMARY KEY (id),
+  CONSTRAINT player_match_stats_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.players(id),
+  CONSTRAINT player_match_stats_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.matches(id)
+);
+CREATE TABLE public.playermatchstats (
+  id integer NOT NULL DEFAULT nextval('playermatchstats_id_seq'::regclass),
+  match_id integer NOT NULL,
+  player_id integer NOT NULL,
+  shots integer NOT NULL,
+  goals integer NOT NULL,
+  assists integer NOT NULL,
+  steals integer NOT NULL,
+  blocks integer NOT NULL,
+  turnovers integer NOT NULL,
+  penalties integer NOT NULL,
+  exclusions integer NOT NULL,
+  rebounds integer NOT NULL,
+  tipped_passes integer NOT NULL,
+  sprints integer NOT NULL,
+  hustle integer NOT NULL,
+  draws integer NOT NULL,
+  time_in_pool integer NOT NULL,
+  CONSTRAINT playermatchstats_pkey PRIMARY KEY (id),
+  CONSTRAINT playermatchstats_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.match(id),
+  CONSTRAINT playermatchstats_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.player(id)
+);
+CREATE TABLE public.playernote (
+  id integer NOT NULL DEFAULT nextval('playernote_id_seq'::regclass),
+  match_id integer,
+  player_id integer NOT NULL,
+  note text NOT NULL,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT playernote_pkey PRIMARY KEY (id),
+  CONSTRAINT playernote_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.match(id),
+  CONSTRAINT playernote_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.player(id)
+);
+CREATE TABLE public.players (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  team_id uuid NOT NULL,
+  first_name character varying NOT NULL,
+  last_name character varying NOT NULL,
+  jersey_number integer NOT NULL,
+  position character varying NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT players_pkey PRIMARY KEY (id),
+  CONSTRAINT players_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.plays (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  description text,
+  play_type character varying NOT NULL,
+  formation character varying,
+  team_id uuid,
+  diagram_url character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT plays_pkey PRIMARY KEY (id),
+  CONSTRAINT plays_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.possession (
+  id integer NOT NULL DEFAULT nextval('possession_id_seq'::regclass),
+  match_id integer NOT NULL,
+  team_id integer NOT NULL,
+  quarter integer NOT NULL,
+  start_time integer NOT NULL,
+  end_time integer,
+  outcome character varying,
+  is_power_play boolean NOT NULL,
+  CONSTRAINT possession_pkey PRIMARY KEY (id),
+  CONSTRAINT possession_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.match(id),
+  CONSTRAINT possession_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.team(id)
+);
+CREATE TABLE public.possessions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  match_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  quarter integer NOT NULL,
+  start_time_seconds numeric NOT NULL,
+  end_time_seconds numeric,
+  duration_seconds numeric DEFAULT 0,
+  start_reason character varying,
+  end_reason character varying,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT possessions_pkey PRIMARY KEY (id),
+  CONSTRAINT possessions_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.matches(id),
+  CONSTRAINT possessions_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id)
+);
+CREATE TABLE public.refereecall (
+  id integer NOT NULL DEFAULT nextval('refereecall_id_seq'::regclass),
+  match_id integer NOT NULL,
+  quarter integer NOT NULL,
+  game_time integer NOT NULL,
+  call_type character varying NOT NULL,
+  player_id integer,
+  player_name character varying,
+  team_id integer,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT refereecall_pkey PRIMARY KEY (id),
+  CONSTRAINT refereecall_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.match(id),
+  CONSTRAINT refereecall_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.player(id),
+  CONSTRAINT refereecall_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.team(id)
+);
+CREATE TABLE public.team (
+  id integer NOT NULL DEFAULT nextval('team_id_seq'::regclass),
+  name character varying NOT NULL,
+  short_name character varying NOT NULL,
+  is_uc_davis boolean NOT NULL,
+  created_at timestamp without time zone NOT NULL,
+  CONSTRAINT team_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.team_match_stats (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  team_id uuid NOT NULL,
+  match_id uuid NOT NULL,
+  fco integer DEFAULT 0,
+  fcd integer DEFAULT 0,
+  cao integer DEFAULT 0,
+  cad integer DEFAULT 0,
+  ag integer DEFAULT 0,
+  agd integer DEFAULT 0,
+  six_on_five_opportunities integer DEFAULT 0,
+  five_on_six_opportunities integer DEFAULT 0,
+  seven_on_six_opportunities integer DEFAULT 0,
+  six_on_seven_opportunities integer DEFAULT 0,
+  total_possession_time_seconds numeric DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT team_match_stats_pkey PRIMARY KEY (id),
+  CONSTRAINT team_match_stats_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id),
+  CONSTRAINT team_match_stats_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.matches(id)
+);
+CREATE TABLE public.teams (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  coach_name character varying,
+  division character varying,
+  season character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT teams_pkey PRIMARY KEY (id)
+);
