@@ -46,7 +46,7 @@ export default function PossessionTimer({
                 toast.error('Please start the game first');
                 return;
               }
-              if (currentPossession === 'ucDavis') {
+              if (currentPossession === 'ucDavis' && isPossessionActive) {
                 onSetPossession(null);
                 toast.info('UC Davis possession stopped');
               } else {
@@ -91,7 +91,7 @@ export default function PossessionTimer({
                 toast.error('Please start the game first');
                 return;
               }
-              if (currentPossession === 'opponent') {
+              if (currentPossession === 'opponent' && isPossessionActive) {
                 onSetPossession(null);
                 toast.info('Opponent possession stopped');
               } else {
