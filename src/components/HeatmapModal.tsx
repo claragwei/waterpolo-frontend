@@ -114,7 +114,7 @@ export default function HeatmapModal({
           {/* Opponent Goal */}
           <div className="text-center mb-3">
             <div className="inline-block">
-              <div className="w-48 h-12 bg-white/90 border-4 border-white rounded-t-lg mx-auto relative overflow-hidden">
+              <div className="w-64 h-12 bg-white/90 border-4 border-white rounded-t-lg mx-auto relative overflow-hidden">
                 <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-[2px] p-1">
                   {[...Array(8)].map((_, i) => (
                     <div key={i} className="border border-gray-300"></div>
@@ -225,7 +225,7 @@ export default function HeatmapModal({
           <div className="text-center mt-3">
             <div className="text-xs text-gray-600 mb-1">UC Davis Goal</div>
             <div className="inline-block">
-              <div className="w-48 h-12 bg-gradient-to-b from-[#FFBF00] to-[#ffcc33] border-4 border-[#FFBF00] rounded-b-lg mx-auto relative overflow-hidden">
+              <div className="w-64 h-12 bg-gradient-to-b from-[#FFBF00] to-[#ffcc33] border-4 border-[#FFBF00] rounded-b-lg mx-auto relative overflow-hidden">
                 <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-[2px] p-1">
                   {[...Array(8)].map((_, i) => (
                     <div key={i} className="border border-[#022851]/20"></div>

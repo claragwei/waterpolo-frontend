@@ -12,6 +12,7 @@ interface PlayerGridProps {
   currentPossession: 'ucDavis' | 'opponent' | null;
   isPossessionActive: boolean;
   activeEjections: ActiveEjection[];
+  suspendedPlayerIds: number[];
   onSelectPlayer: (playerId: number, team: 'ucDavis' | 'opponent') => void;
   onOpenSubModal: (team: 'ucDavis' | 'opponent') => void;
 }
@@ -23,6 +24,7 @@ export default function PlayerGrid({
   currentPossession,
   isPossessionActive,
   activeEjections,
+  suspendedPlayerIds,
   onSelectPlayer,
   onOpenSubModal,
 }: PlayerGridProps) {
@@ -52,10 +54,16 @@ export default function PlayerGrid({
                 selectedPlayer === player.playerId && currentPossession === 'ucDavis';
               const ejection = isPlayerEjected(player.playerId, 'ucDavis');
               const isEjected = !!ejection;
+              const isSuspended = suspendedPlayerIds.includes(player.playerId);
+              const majorFouls = player.majorFouls ?? 0;
               return (
                 <div key={player.playerId} className="relative">
                   <Button
                     onClick={() => {
+                      if (isSuspended) {
+                        toast.error(`${player.playerName} is suspended (brutality)`);
+                        return;
+                      }
                       if (isEjected) {
                         toast.error(
                           `${player.playerName} is ejected (${ejection.timeRemaining}s remaining)`,
@@ -65,9 +73,11 @@ export default function PlayerGrid({
                       onSelectPlayer(player.playerId, 'ucDavis');
                       toast.success(`Tracking ${player.playerName}`);
                     }}
-                    disabled={isEjected}
+                    disabled={isEjected || isSuspended}
                     className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
-                      isEjected
+                      isSuspended
+                        ? 'bg-red-900 text-white border-2 border-black opacity-80 cursor-not-allowed'
+                        : isEjected
                         ? 'bg-orange-600 text-white border-2 border-orange-800 opacity-70 cursor-not-allowed'
                         : isSelectedUCDavis
                         ? 'bg-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/90 ring-2 ring-[#022851] shadow-lg'
@@ -86,9 +96,19 @@ export default function PlayerGrid({
                       {ejection.timeRemaining}s
                     </Badge>
                   )}
+                  {isSuspended && (
+                    <Badge className="absolute -top-1 -right-1 bg-red-900 text-white text-xs px-1">
+                      OUT
+                    </Badge>
+                  )}
                   {!isEjected && player.isActive && (
                     <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
                       IN
+                    </Badge>
+                  )}
+                  {majorFouls > 0 && (
+                    <Badge className="absolute -bottom-1 -left-1 bg-indigo-700 text-white text-[10px] px-1">
+                      MF {majorFouls}
                     </Badge>
                   )}
                 </div>
@@ -114,10 +134,16 @@ export default function PlayerGrid({
                 selectedPlayer === player.playerId && currentPossession === 'opponent';
               const ejection = isPlayerEjected(player.playerId, 'opponent');
               const isEjected = !!ejection;
+              const isSuspended = suspendedPlayerIds.includes(player.playerId);
+              const majorFouls = player.majorFouls ?? 0;
               return (
                 <div key={player.playerId} className="relative">
                   <Button
                     onClick={() => {
+                      if (isSuspended) {
+                        toast.error(`${player.playerName} is suspended (brutality)`);
+                        return;
+                      }
                       if (isEjected) {
                         toast.error(
                           `${player.playerName} is ejected (${ejection.timeRemaining}s remaining)`,
@@ -127,9 +153,11 @@ export default function PlayerGrid({
                       onSelectPlayer(player.playerId, 'opponent');
                       toast.success(`Tracking ${player.playerName}`);
                     }}
-                    disabled={isEjected}
+                    disabled={isEjected || isSuspended}
                     className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
-                      isEjected
+                      isSuspended
+                        ? 'bg-red-900 text-white border-2 border-black opacity-80 cursor-not-allowed'
+                        : isEjected
                         ? 'bg-orange-600 text-white border-2 border-orange-800 opacity-70 cursor-not-allowed'
                         : isSelectedOpponent
                         ? 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-800 shadow-lg'
@@ -148,9 +176,19 @@ export default function PlayerGrid({
                       {ejection.timeRemaining}s
                     </Badge>
                   )}
+                  {isSuspended && (
+                    <Badge className="absolute -top-1 -right-1 bg-red-900 text-white text-xs px-1">
+                      OUT
+                    </Badge>
+                  )}
                   {!isEjected && player.isActive && (
                     <Badge className="absolute -top-1 -right-1 bg-green-500 text-white text-xs px-1">
                       IN
+                    </Badge>
+                  )}
+                  {majorFouls > 0 && (
+                    <Badge className="absolute -bottom-1 -left-1 bg-indigo-700 text-white text-[10px] px-1">
+                      MF {majorFouls}
                     </Badge>
                   )}
                 </div>

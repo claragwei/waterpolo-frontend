@@ -8,7 +8,7 @@ interface RefereeCallModalProps {
   pendingRefereeCall: RefereeCall['type'] | null;
   ucDavisPlayerStats: PlayerStat[];
   opponentPlayerStats: PlayerStat[];
-  onConfirm: (playerName?: string, team?: 'ucDavis' | 'opponent') => void;
+  onConfirm: (playerName?: string, team?: 'ucDavis' | 'opponent', playerId?: number) => void;
   onClose: () => void;
 }
 
@@ -38,15 +38,33 @@ export default function RefereeCallModal({
         </div>
 
         <p className="text-gray-600 mb-4">
-          Select a player (optional) or record without a specific player
+          Select a player (optional) or record for a full team
         </p>
 
-        <Button
-          onClick={() => onConfirm()}
-          className="w-full mb-4 bg-gray-600 hover:bg-gray-700 text-white"
-        >
-          Record Call (No Player)
-        </Button>
+        <div className="grid grid-cols-1 gap-2 mb-4">
+          <Button
+            onClick={() => onConfirm()}
+            className="w-full bg-gray-600 hover:bg-gray-700 text-white"
+          >
+            Record Call (No Player)
+          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              onClick={() => onConfirm(undefined, 'ucDavis')}
+              variant="outline"
+              className="border-[#FFBF00] text-[#022851] hover:bg-[#FFBF00]/10"
+            >
+              UC Davis Team
+            </Button>
+            <Button
+              onClick={() => onConfirm(undefined, 'opponent')}
+              variant="outline"
+              className="border-red-600 text-red-700 hover:bg-red-50"
+            >
+              Opponent Team
+            </Button>
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -55,7 +73,7 @@ export default function RefereeCallModal({
               {ucDavisPlayerStats.map((player) => (
                 <Button
                   key={player.playerId}
-                  onClick={() => onConfirm(player.playerName, 'ucDavis')}
+                  onClick={() => onConfirm(player.playerName, 'ucDavis', player.playerId)}
                   variant="outline"
                   className="w-full text-left justify-start text-xs border-[#FFBF00] hover:bg-[#FFBF00]/10"
                 >
@@ -71,7 +89,7 @@ export default function RefereeCallModal({
               {opponentPlayerStats.map((player) => (
                 <Button
                   key={player.playerId}
-                  onClick={() => onConfirm(player.playerName, 'opponent')}
+                  onClick={() => onConfirm(player.playerName, 'opponent', player.playerId)}
                   variant="outline"
                   className="w-full text-left justify-start text-xs border-red-600 hover:bg-red-100"
                 >

@@ -23,6 +23,8 @@ interface GameHeaderProps {
   isInBreak: boolean;
   gameTime: number;
   breakTimeRemaining: number;
+  quarterDurationSeconds: number;
+  shotClockSeconds: number | null;
   currentQuarter: number;
   canUndo: boolean;
   canRedo: boolean;
@@ -53,6 +55,8 @@ export default function GameHeader({
   isInBreak,
   gameTime,
   breakTimeRemaining,
+  quarterDurationSeconds,
+  shotClockSeconds,
   currentQuarter,
   canUndo,
   canRedo,
@@ -187,8 +191,16 @@ export default function GameHeader({
             <div className="flex items-center gap-2">
               <Clock size={20} />
               <span className="text-2xl">
-                {isInBreak ? formatTime(breakTimeRemaining) : formatTime(gameTime)}
+                {isInBreak
+                  ? formatTime(breakTimeRemaining)
+                  : formatTime(Math.max(0, quarterDurationSeconds - gameTime))}
               </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm opacity-80">Shot Clock</span>
+              <Badge className="bg-black text-white min-w-[48px] justify-center">
+                {shotClockSeconds === null ? '--' : shotClockSeconds}
+              </Badge>
             </div>
             <div className="flex items-center gap-2">
               <Activity size={20} />
