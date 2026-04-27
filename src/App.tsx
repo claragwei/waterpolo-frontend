@@ -1,4 +1,5 @@
 import LandingPage from './components/LandingPage';
+import HeatmapsPage from './pages/HeatmapsPage';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
 import MatchesPage from './components/MatchesPage';
@@ -90,6 +91,13 @@ export default function App() {
         <Frame title="Reports" width="100%">
           <SidebarLayout currentPage="reports">
             <ReportsPage />
+          </SidebarLayout>
+        </Frame>
+
+        {/* Heatmaps Frame */}
+        <Frame title="Heatmaps" width="100%">
+          <SidebarLayout currentPage="heatmaps">
+            <HeatmapsPage />
           </SidebarLayout>
         </Frame>
 
