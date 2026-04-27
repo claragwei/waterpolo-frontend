@@ -946,6 +946,11 @@ export default function LiveStatsPage() {
           <StatActionPanel
             selectedPlayer={selectedPlayer}
             currentPossession={activeStatsTeam}
+            isOnOffense={
+              isPossessionActive && currentPossession !== null
+                ? activeStatsTeam === currentPossession
+                : undefined
+            }
             activePlayerStats={activePlayerStats}
             gameTime={gameTime}
             currentQuarter={currentQuarter}

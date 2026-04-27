@@ -30,6 +30,8 @@ interface StatActionPanelProps {
   onSteal: (playerId: number) => void;
   onUpdateStat: (playerId: number, stat: keyof PlayerStat, increment?: number) => void;
   onAddNote: () => void;
+  // true = offense only, false = defense only, undefined = show both
+  isOnOffense?: boolean;
 }
 
 export default function StatActionPanel({
@@ -47,6 +49,7 @@ export default function StatActionPanel({
   onSteal,
   onUpdateStat,
   onAddNote,
+  isOnOffense,
 }: StatActionPanelProps) {
   const player = activePlayerStats.find((p) => p.playerId === selectedPlayer);
   if (!player) return null;
@@ -101,8 +104,8 @@ export default function StatActionPanel({
         </div>
       </Card>
 
-      {/* Scoring Actions */}
-      <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+      {/* Scoring Actions — only shown when player is on offense (or possession timer is off) */}
+      {isOnOffense !== false && <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-[#022851] mb-4 flex items-center gap-2">
           <Target size={20} />
           Scoring &amp; Shooting
@@ -151,10 +154,10 @@ export default function StatActionPanel({
             Turnover
           </Button>
         </div>
-      </Card>
+      </Card>}
 
-      {/* Defensive Actions */}
-      <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+      {/* Defensive Actions — only shown when player is on defense (or possession timer is off) */}
+      {isOnOffense !== true && <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-[#022851] mb-4 flex items-center gap-2">
           <Shield size={20} />
           Defensive Actions
@@ -203,7 +206,7 @@ export default function StatActionPanel({
             Hustle Play
           </Button>
         </div>
-      </Card>
+      </Card>}
 
       {/* Player Notes Section */}
       <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
