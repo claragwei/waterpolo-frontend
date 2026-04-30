@@ -337,7 +337,81 @@ async def get_player_averages(player_id: int):
         "avg_blocks": round(sum(s.blocks for s in stats) / n, 2),
         "shot_percentage": round((goals / shot_attempts * 100) if shot_attempts else 0, 1),
     }
+@app.get("/api/players/{player_id}/score")
+async def get_player_score(player_id: int):
+    player = Player.get_or_none(Player.id == player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    
+    stats = list(PlayerMatchStats.select().where(PlayerMatchStats.player == player_id))
+    n = len(stats) or 1
 
+    # Per-game averages
+    avg_goals    = sum(s.goals for s in stats) / n
+    avg_shots    = max(sum(s.shots for s in stats) / n, 0.1)
+    avg_assists  = sum(s.assists for s in stats) / n
+    avg_steals   = sum(s.steals for s in stats) / n
+    avg_rebounds = sum(s.rebounds for s in stats) / n
+    avg_sprints  = sum(s.sprints for s in stats) / n
+    avg_hustle   = sum(s.hustle for s in stats) / n
+    avg_draws    = sum(s.draws for s in stats) / n
+
+    # Normalize each stat to 0-100 (set expected max per game)
+    MAX = {
+        "conversion": 0.60,  # 60% conversion rate = max
+        "assists":    3.0,
+        "steals":     2.5,
+        "rebounds":   2.0,
+        "sprints":    1.5,
+        "hustle":     3.0,
+        "draws":      2.0,
+    }
+
+    def norm(val, max_val):
+        return min(val / max_val * 100, 100)
+
+    conv_score    = norm(avg_goals / avg_shots, MAX["conversion"])
+    assist_score  = norm(avg_assists,           MAX["assists"])
+    steal_score   = norm(avg_steals,            MAX["steals"])
+    rebound_score = norm(avg_rebounds,          MAX["rebounds"])
+    sprint_score  = norm(avg_sprints,           MAX["sprints"])
+    hustle_score  = norm(avg_hustle,            MAX["hustle"])
+    draw_score    = norm(avg_draws,             MAX["draws"])
+
+    # Weighted sum
+    total = round(
+        conv_score    * 0.32 +
+        assist_score  * 0.16 +
+        steal_score   * 0.16 +
+        rebound_score * 0.08 +
+        sprint_score  * 0.08 +
+        hustle_score  * 0.07 +
+        draw_score    * 0.05
+    )
+
+    tier = (
+        "elite"      if total >= 80 else
+        "strong"     if total >= 60 else
+        "average"    if total >= 40 else
+        "developing"
+    )
+
+    return {
+        "player_id":       player_id,
+        "games_played":    len(stats),
+        "score":           total,
+        "tier":            tier,
+        "conversion_rate": round(avg_goals / avg_shots * 100, 1),
+        "components": {
+            "goals_conversion": round(conv_score * 0.32, 1),
+            "assists":          round(assist_score * 0.16, 1),
+            "steals":           round(steal_score * 0.16, 1),
+            "rebounds":         round(rebound_score * 0.08, 1),
+            "sprints":          round(sprint_score * 0.08, 1),
+            "hustle":           round(hustle_score * 0.07, 1),
+            "draws":            round(draw_score * 0.05, 1),
+        }
+    }
 
 # ---------------------------------------------------------------------------
 # Matches
