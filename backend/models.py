@@ -64,6 +64,7 @@ class PlayerMatchStats(BaseModel):
     hustle = IntegerField(default=0)
     draws = IntegerField(default=0)
     time_in_pool = IntegerField(default=0)   # seconds
+    score = FloatField(default=0.0)
 
     class Meta:
         indexes = ((('match', 'player'), True),)  # unique constraint

@@ -211,6 +211,47 @@ def update_player_career_stats(player: Player):
     player.total_penalties = sum(s.penalties for s in stats)
     player.save()
 
+def compute_and_save_score(row: PlayerMatchStats):
+    shots = max(row.shots, 0.1)
+
+    MAX = {
+        "conversion": 0.60,
+        "assists":    3.0,
+        "steals":     2.5,
+        "rebounds":   2.0,
+        "sprints":    1.5,
+        "hustle":     3.0,
+        "draws":      2.0,
+    }
+
+    def norm(val, max_val):
+        return min(val / max_val * 100, 100)
+
+    conv_score    = norm(row.goals / shots,  MAX["conversion"])
+    assist_score  = norm(row.assists,        MAX["assists"])
+    steal_score   = norm(row.steals,         MAX["steals"])
+    rebound_score = norm(row.rebounds,       MAX["rebounds"])
+    sprint_score  = norm(row.sprints,        MAX["sprints"])
+    hustle_score  = norm(row.hustle,         MAX["hustle"])
+    draw_score    = norm(row.draws,          MAX["draws"])
+
+    row.score = round(
+        conv_score    * 0.32 +
+        assist_score  * 0.16 +
+        steal_score   * 0.16 +
+        rebound_score * 0.08 +
+        sprint_score  * 0.08 +
+        hustle_score  * 0.07 +
+        draw_score    * 0.05,
+        1
+    )
+    row.save()
+
+    def _score_tier(score: float) -> str:
+    if score >= 80: return "elite"
+    if score >= 60: return "strong"
+    if score >= 40: return "average"
+    return "developing"
 
 # ---------------------------------------------------------------------------
 # Teams
@@ -337,81 +378,55 @@ async def get_player_averages(player_id: int):
         "avg_blocks": round(sum(s.blocks for s in stats) / n, 2),
         "shot_percentage": round((goals / shot_attempts * 100) if shot_attempts else 0, 1),
     }
-@app.get("/api/players/{player_id}/score")
-async def get_player_score(player_id: int):
+
+# Score for a single game
+@app.get("/api/players/{player_id}/stats/{match_id}/score")
+async def get_player_game_score(player_id: int, match_id: int):
+    row = PlayerMatchStats.get_or_none(
+        (PlayerMatchStats.player == player_id) &
+        (PlayerMatchStats.match == match_id)
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Stats not found")
+    return {
+        "player_id": player_id,
+        "match_id":  match_id,
+        "score":     row.score,
+        "tier":      _score_tier(row.score),
+    }
+
+
+# Score for every game a player has played
+@app.get("/api/players/{player_id}/scores")
+async def get_player_all_scores(player_id: int):
     player = Player.get_or_none(Player.id == player_id)
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
-    
-    stats = list(PlayerMatchStats.select().where(PlayerMatchStats.player == player_id))
-    n = len(stats) or 1
-
-    # Per-game averages
-    avg_goals    = sum(s.goals for s in stats) / n
-    avg_shots    = max(sum(s.shots for s in stats) / n, 0.1)
-    avg_assists  = sum(s.assists for s in stats) / n
-    avg_steals   = sum(s.steals for s in stats) / n
-    avg_rebounds = sum(s.rebounds for s in stats) / n
-    avg_sprints  = sum(s.sprints for s in stats) / n
-    avg_hustle   = sum(s.hustle for s in stats) / n
-    avg_draws    = sum(s.draws for s in stats) / n
-
-    # Normalize each stat to 0-100 (set expected max per game)
-    MAX = {
-        "conversion": 0.60,  # 60% conversion rate = max
-        "assists":    3.0,
-        "steals":     2.5,
-        "rebounds":   2.0,
-        "sprints":    1.5,
-        "hustle":     3.0,
-        "draws":      2.0,
-    }
-
-    def norm(val, max_val):
-        return min(val / max_val * 100, 100)
-
-    conv_score    = norm(avg_goals / avg_shots, MAX["conversion"])
-    assist_score  = norm(avg_assists,           MAX["assists"])
-    steal_score   = norm(avg_steals,            MAX["steals"])
-    rebound_score = norm(avg_rebounds,          MAX["rebounds"])
-    sprint_score  = norm(avg_sprints,           MAX["sprints"])
-    hustle_score  = norm(avg_hustle,            MAX["hustle"])
-    draw_score    = norm(avg_draws,             MAX["draws"])
-
-    # Weighted sum
-    total = round(
-        conv_score    * 0.32 +
-        assist_score  * 0.16 +
-        steal_score   * 0.16 +
-        rebound_score * 0.08 +
-        sprint_score  * 0.08 +
-        hustle_score  * 0.07 +
-        draw_score    * 0.05
-    )
-
-    tier = (
-        "elite"      if total >= 80 else
-        "strong"     if total >= 60 else
-        "average"    if total >= 40 else
-        "developing"
-    )
-
+    rows = PlayerMatchStats.select().where(PlayerMatchStats.player == player_id)
+    scores = [{"match_id": r.match_id, "score": r.score, "tier": _score_tier(r.score)} for r in rows]
+    avg = round(sum(s["score"] for s in scores) / len(scores), 1) if scores else 0
     return {
-        "player_id":       player_id,
-        "games_played":    len(stats),
-        "score":           total,
-        "tier":            tier,
-        "conversion_rate": round(avg_goals / avg_shots * 100, 1),
-        "components": {
-            "goals_conversion": round(conv_score * 0.32, 1),
-            "assists":          round(assist_score * 0.16, 1),
-            "steals":           round(steal_score * 0.16, 1),
-            "rebounds":         round(rebound_score * 0.08, 1),
-            "sprints":          round(sprint_score * 0.08, 1),
-            "hustle":           round(hustle_score * 0.07, 1),
-            "draws":            round(draw_score * 0.05, 1),
-        }
+        "player_id":   player_id,
+        "games_played": len(scores),
+        "avg_score":   avg,
+        "games":       scores,
     }
+
+
+# Scores for all players in a match
+@app.get("/api/matches/{match_id}/scores")
+async def get_match_scores(match_id: int):
+    match = Match.get_or_none(Match.id == match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    rows = PlayerMatchStats.select().where(PlayerMatchStats.match == match_id)
+    return sorted(
+        [{"player_id": r.player_id, "score": r.score, "tier": _score_tier(r.score)} for r in rows],
+        key=lambda x: x["score"],
+        reverse=True,
+    )
+
+
 
 # ---------------------------------------------------------------------------
 # Matches
@@ -501,6 +516,7 @@ async def increment_match_stats(match_id: int, body: StatsDelta):
         kwargs = {f: delta.get(f, 0) for f in stat_fields}
         row = PlayerMatchStats.create(match=match, player=player, **kwargs)
 
+    compute_and_save_score(row)  
     update_player_career_stats(player)
     return _stats_to_dict(row)
 
@@ -525,6 +541,7 @@ async def overwrite_match_stats(match_id: int, body: StatsOverwrite):
     else:
         row = PlayerMatchStats.create(match=match, player=player, **data)
 
+    compute_and_save_score(row)  
     update_player_career_stats(player)
     return _stats_to_dict(row)
 
