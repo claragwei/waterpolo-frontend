@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import db
 from models import (
     Team, Player, Match, PlayerMatchStats,
-    PlayByPlay, RefereeCall, Possession, PlayerNote,
+    PlayByPlay, RefereeCall, Possession, PlayerNote, MatchVideoSync,
     create_tables,
 )
 from schemas import (
@@ -22,6 +22,7 @@ from schemas import (
     RefereeCallCreate, RefereeCallResponse,
     PossessionCreate, PossessionUpdate, PossessionResponse,
     NoteCreate, NoteResponse,
+    MatchVideoSyncUpsert, MatchVideoSyncResponse,
 )
 from auth import verify_api_key
 
@@ -196,6 +197,18 @@ def _note_to_dict(n: PlayerNote) -> dict:
         "player_id": n.player_id,
         "note": n.note,
         "created_at": n.created_at,
+    }
+
+
+def _video_sync_to_dict(v: MatchVideoSync) -> dict:
+    return {
+        "id": v.id,
+        "match_id": v.match_id,
+        "quarter": v.quarter,
+        "video_url": v.video_url,
+        "video_offset_sec": v.video_offset_sec,
+        "created_at": v.created_at,
+        "updated_at": v.updated_at,
     }
 
 
@@ -602,6 +615,37 @@ async def create_note(match_id: int, body: NoteCreate):
         raise HTTPException(status_code=404, detail="Player not found")
     note = PlayerNote.create(match=match, player=player, note=body.note)
     return _note_to_dict(note)
+
+
+@app.get("/api/matches/{match_id}/video-sync", response_model=List[MatchVideoSyncResponse])
+async def get_match_video_sync(match_id: int):
+    match = Match.get_or_none(Match.id == match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    rows = MatchVideoSync.select().where(MatchVideoSync.match == match_id).order_by(MatchVideoSync.quarter)
+    return [_video_sync_to_dict(v) for v in rows]
+
+
+@app.put("/api/matches/{match_id}/video-sync", response_model=MatchVideoSyncResponse, dependencies=[Depends(verify_api_key)])
+async def upsert_match_video_sync(match_id: int, body: MatchVideoSyncUpsert):
+    match = Match.get_or_none(Match.id == match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    row = MatchVideoSync.get_or_none(
+        (MatchVideoSync.match == match_id) & (MatchVideoSync.quarter == body.quarter)
+    )
+    if row:
+        row.video_url = body.video_url
+        row.video_offset_sec = body.video_offset_sec
+        row.save()
+    else:
+        row = MatchVideoSync.create(
+            match=match,
+            quarter=body.quarter,
+            video_url=body.video_url,
+            video_offset_sec=body.video_offset_sec,
+        )
+    return _video_sync_to_dict(row)
 
 
 # ---------------------------------------------------------------------------

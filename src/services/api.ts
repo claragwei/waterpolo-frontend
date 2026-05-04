@@ -21,6 +21,16 @@ interface Match {
   created_at?: string;
 }
 
+interface MatchVideoSync {
+  id: number;
+  match_id: number;
+  quarter: number;
+  video_url: string;
+  video_offset_sec: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const API_KEY  = import.meta.env.VITE_API_KEY  ?? '';
 
@@ -115,5 +125,18 @@ export const api = {
     apiFetch(`/api/matches/${matchId}/notes`, {
       method: 'POST',
       body: JSON.stringify(note),
+    }),
+
+  // --- Match video sync ---
+  getMatchVideoSync: (matchId: number) =>
+    apiFetch<MatchVideoSync[]>(`/api/matches/${matchId}/video-sync`),
+
+  upsertMatchVideoSync: (
+    matchId: number,
+    body: { quarter: number; video_url: string; video_offset_sec: number },
+  ) =>
+    apiFetch<MatchVideoSync>(`/api/matches/${matchId}/video-sync`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
     }),
 };

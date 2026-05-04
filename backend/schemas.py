@@ -282,3 +282,25 @@ class NoteResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Match Video Sync
+# ---------------------------------------------------------------------------
+
+class MatchVideoSyncUpsert(BaseModel):
+    quarter: int = 1
+    video_url: str
+    video_offset_sec: int = 0
+
+
+class MatchVideoSyncResponse(BaseModel):
+    id: int
+    match_id: int
+    quarter: int
+    video_url: str
+    video_offset_sec: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

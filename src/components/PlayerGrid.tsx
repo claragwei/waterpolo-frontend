@@ -35,12 +35,12 @@ export default function PlayerGrid({
     activeEjections.find((ej) => ej.playerId === playerId && ej.team === team);
 
   return (
-    <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
-      <div className="space-y-6">
+    <Card className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+      <div className="grid grid-cols-2 gap-3">
         {/* UC Davis Players */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[#022851]">Select Player - UC Davis</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[#022851] text-sm">UC Davis Players</h3>
             {currentPossession === 'ucDavis' && isPossessionActive && (
               <Badge className="bg-[#FFBF00] text-[#022851]">
                 <Activity size={12} className="mr-1 inline animate-pulse" />
@@ -48,7 +48,7 @@ export default function PlayerGrid({
               </Badge>
             )}
           </div>
-          <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
+          <div className="grid grid-cols-5 gap-1.5">
             {ucDavisPlayerStats.map((player) => {
               const isSelectedUCDavis =
                 selectedPlayer === player.playerId && currentPossession === 'ucDavis';
@@ -71,10 +71,9 @@ export default function PlayerGrid({
                         return;
                       }
                       onSelectPlayer(player.playerId, 'ucDavis');
-                      toast.success(`Tracking ${player.playerName}`);
                     }}
                     disabled={isEjected || isSuspended}
-                    className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
+                    className={`w-full h-11 flex flex-col items-center justify-center transition-all ${
                       isSuspended
                         ? 'bg-red-900 text-white border-2 border-black opacity-80 cursor-not-allowed'
                         : isEjected
@@ -86,8 +85,8 @@ export default function PlayerGrid({
                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
                     }`}
                   >
-                    <div className="text-3xl font-bold mb-1">#{player.jerseyNumber}</div>
-                    <div className="text-[10px] opacity-80 leading-tight text-center px-1">
+                    <div className="text-sm font-bold leading-none">#{player.jerseyNumber}</div>
+                    <div className="text-[8px] opacity-80 leading-tight text-center px-1 truncate w-full">
                       {player.playerName}
                     </div>
                   </Button>
@@ -119,8 +118,8 @@ export default function PlayerGrid({
 
         {/* Opponent Players */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[#022851]">Select Player - Opponents</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[#022851] text-sm">Opponent Players</h3>
             {currentPossession === 'opponent' && isPossessionActive && (
               <Badge className="bg-red-600 text-white">
                 <Activity size={12} className="mr-1 inline animate-pulse" />
@@ -128,7 +127,7 @@ export default function PlayerGrid({
               </Badge>
             )}
           </div>
-          <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
+          <div className="grid grid-cols-5 gap-1.5">
             {opponentPlayerStats.map((player) => {
               const isSelectedOpponent =
                 selectedPlayer === player.playerId && currentPossession === 'opponent';
@@ -151,10 +150,9 @@ export default function PlayerGrid({
                         return;
                       }
                       onSelectPlayer(player.playerId, 'opponent');
-                      toast.success(`Tracking ${player.playerName}`);
                     }}
                     disabled={isEjected || isSuspended}
-                    className={`w-full h-20 flex flex-col items-center justify-center transition-all ${
+                    className={`w-full h-11 flex flex-col items-center justify-center transition-all ${
                       isSuspended
                         ? 'bg-red-900 text-white border-2 border-black opacity-80 cursor-not-allowed'
                         : isEjected
@@ -166,8 +164,8 @@ export default function PlayerGrid({
                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300 opacity-60'
                     }`}
                   >
-                    <div className="text-3xl font-bold mb-1">#{player.jerseyNumber}</div>
-                    <div className="text-[10px] opacity-80 leading-tight text-center px-1">
+                    <div className="text-sm font-bold leading-none">#{player.jerseyNumber}</div>
+                    <div className="text-[8px] opacity-80 leading-tight text-center px-1 truncate w-full">
                       {player.playerName}
                     </div>
                   </Button>
@@ -199,7 +197,7 @@ export default function PlayerGrid({
       </div>
 
       {/* Legend and Substitution Buttons */}
-      <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+      <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between">
         <div className="text-sm text-gray-500 flex items-center gap-2">
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-green-500 rounded"></div>
@@ -217,7 +215,7 @@ export default function PlayerGrid({
             className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]"
           >
             <ArrowLeftRight className="mr-1" size={14} />
-            Swap UC Davis
+            UC Davis Substitution
           </Button>
           <Button
             size="sm"
@@ -225,7 +223,7 @@ export default function PlayerGrid({
             className="bg-gray-700 hover:bg-gray-800 text-white"
           >
             <ArrowLeftRight className="mr-1" size={14} />
-            Swap Opponent
+            Opponent Substitution
           </Button>
         </div>
       </div>
