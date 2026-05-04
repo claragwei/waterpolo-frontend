@@ -8,6 +8,7 @@ import ReportsPage from './components/ReportsPage';
 import LiveStatsPage from './components/LiveStatsPageDual';
 import Sidebar from './components/Sidebar';
 import { Toaster } from './components/ui/sonner';
+import PlayerStatsPage from './components/PlayerStatsPage';
 
 // Frame wrapper component for Figma-like artboards
 function Frame({ title, children, width = "1440px" }: { title: string; children: React.ReactNode; width?: string }) {
@@ -90,6 +91,13 @@ export default function App() {
         <Frame title="Reports" width="100%">
           <SidebarLayout currentPage="reports">
             <ReportsPage />
+          </SidebarLayout>
+        </Frame>
+        
+        {/* Player Stats Frame */}
+        <Frame title="Player Stats" width="100%">
+          <SidebarLayout currentPage="player-stats">
+            <PlayerStatsPage />
           </SidebarLayout>
         </Frame>
 

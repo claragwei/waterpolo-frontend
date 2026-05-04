@@ -1,14 +1,21 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { FileText, Download, Calendar, User, Trophy, Clock, Flag } from 'lucide-react';
-import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
+import { useState, useEffect } from 'react';
+
 
 export default function ReportsPage() {
   const [showQuarterReport, setShowQuarterReport] = useState(false);
   const [showHalftimeReport, setShowHalftimeReport] = useState(false);
-
+  //new code
+  const [showPlayerReport, setShowPlayerReport] = useState(false);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
+  const [selectedSeason, setSelectedSeason] = useState('2025');
+  const [playerStats, setPlayerStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
   // Mock data - in production, this would come from localStorage or state management
   const mockGameData = {
     currentQuarter: 2,
@@ -380,7 +387,124 @@ export default function ReportsPage() {
       </Dialog>
     );
   };
+useEffect(() => {
+  fetch('http://localhost:8000/api/players?team_id=1')
+    .then(res => res.json())
+    .then(data => setPlayers(data))
+    .catch(err => console.error('Failed to fetch players:', err));
+}, []);
 
+const fetchPlayerStats = async (playerId: number) => {
+  setLoadingStats(true);
+  try {
+    const res = await fetch(`http://localhost:8000/api/players/${playerId}/averages`);
+    const data = await res.json();
+    setPlayerStats(data);
+  } catch (err) {
+    console.error('Failed to fetch player stats:', err);
+  }
+  setLoadingStats(false);
+};
+
+const renderPlayerSeasonReport = () => (
+  <Dialog open={showPlayerReport} onOpenChange={setShowPlayerReport}>
+    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="text-2xl text-[#022851]">
+          Player Season Performance Report
+        </DialogTitle>
+      </DialogHeader>
+
+      <div className="space-y-6">
+        {/* Controls */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Player</label>
+            <select
+              className="w-full border border-gray-300 rounded-md p-2 text-sm"
+              onChange={e => {
+                const player = players.find(p => p.id === parseInt(e.target.value));
+                setSelectedPlayer(player);
+                setPlayerStats(null);
+                if (player) fetchPlayerStats(player.id);
+              }}
+            >
+              <option value="">-- Choose a player --</option>
+              {players.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Season</label>
+            <select
+              className="w-full border border-gray-300 rounded-md p-2 text-sm"
+              value={selectedSeason}
+              onChange={e => setSelectedSeason(e.target.value)}
+            >
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+              <option value="2023">2023</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Stats Display */}
+        {loadingStats && <p className="text-center text-gray-500">Loading stats...</p>}
+
+        {selectedPlayer && playerStats && !loadingStats && (
+          <>
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580] text-white">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-[#FFBF00] mb-1">{selectedPlayer.name}</div>
+                <div className="text-gray-300">Season {selectedSeason} Performance</div>
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-3 gap-4">
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_goals ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Goals</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_assists ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Assists</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_steals ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Steals</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_shots ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Shots</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.avg_goals ?? 0}</div>
+                <div className="text-sm text-gray-600">Avg Goals/Game</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.games_played ?? 0}</div>
+                <div className="text-sm text-gray-600">Games Played</div>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {selectedPlayer && !playerStats && !loadingStats && (
+          <p className="text-center text-gray-500">No stats found for this player.</p>
+        )}
+
+        <div className="flex gap-3 justify-end">
+          <Button variant="outline" onClick={() => setShowPlayerReport(false)}>Close</Button>
+          <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+            <Download className="mr-2" size={16} />
+            Download PDF
+          </Button>
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>
+);
   const availableReports = [
     {
       id: 1,
@@ -449,12 +573,22 @@ export default function ReportsPage() {
       action: () => setShowHalftimeReport(true),
       highlight: true
     },
+    {
+      id: 7,
+      name: 'Player Season Performance',
+      description: 'View goals, assists, steals and more for any player across a selected season',
+      icon: User,
+      action: () => setShowPlayerReport(true),
+      highlight: true
+    },
   ];
 
   return (
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
       {renderQuarterReport()}
       {renderHalftimeReport()}
+      {renderPlayerSeasonReport()}
+
       
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>

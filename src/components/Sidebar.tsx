@@ -13,6 +13,8 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     { id: 'live-stats', label: 'Live Stats', icon: Activity },
     { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'player-stats', label: 'Player Stats', icon: Users },
+
   ];
 
   return (
