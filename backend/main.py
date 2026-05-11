@@ -32,14 +32,30 @@ app = FastAPI(title="UC Davis Water Polo API")
 # CORS
 # ---------------------------------------------------------------------------
 
-origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _parse_cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    out: list[str] = []
+    for part in raw.split(","):
+        o = part.strip().strip('"').strip("'")
+        if o:
+            out.append(o)
+    return out
+
+
+origins = _parse_cors_origins()
+# Vercel preview URLs change every deploy; regex keeps CORS working without
+# editing Render each time. Override with CORS_ORIGIN_REGEX= to disable.
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app").strip()
+_cors_kw: dict = {
+    "allow_origins": origins,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if _cors_regex:
+    _cors_kw["allow_origin_regex"] = _cors_regex
+
+app.add_middleware(CORSMiddleware, **_cors_kw)
 
 # ---------------------------------------------------------------------------
 # Lifecycle
