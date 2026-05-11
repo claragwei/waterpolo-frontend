@@ -1,3 +1,12 @@
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import LandingPage from './components/LandingPage';
 import HeatmapsPage from './pages/HeatmapsPage';
 import LoginPage from './components/LoginPage';
@@ -7,112 +16,173 @@ import MatchDetailsPage from './components/MatchDetailsPage';
 import PlayerInsightsPage from './components/PlayerInsightsPage';
 import ReportsPage from './components/ReportsPage';
 import LiveStatsPage from './components/LiveStatsPageDual';
+import SettingsPage from './components/SettingsPage';
 import Sidebar from './components/Sidebar';
 import { Toaster } from './components/ui/sonner';
 
-// Frame wrapper component for Figma-like artboards
-function Frame({ title, children, width = "1440px" }: { title: string; children: React.ReactNode; width?: string }) {
+function pathToSidebarId(pathname: string): string {
+  if (pathname.startsWith('/matches/')) return 'matches';
+  if (pathname.startsWith('/dashboard')) return 'dashboard';
+  if (pathname.startsWith('/matches')) return 'matches';
+  if (pathname.startsWith('/players')) return 'players';
+  if (pathname.startsWith('/live-stats')) return 'live-stats';
+  if (pathname.startsWith('/reports')) return 'reports';
+  if (pathname.startsWith('/heatmaps')) return 'heatmaps';
+  if (pathname.startsWith('/settings')) return 'settings';
+  return '';
+}
+
+function useAppNavigate() {
+  const navigate = useNavigate();
+  return (page: string, matchId?: number) => {
+    switch (page) {
+      case 'dashboard':
+        navigate('/dashboard');
+        break;
+      case 'login':
+        navigate('/login');
+        break;
+      case 'matches':
+        navigate('/matches');
+        break;
+      case 'match-details':
+        if (matchId != null) navigate(`/matches/${matchId}`);
+        break;
+      case 'players':
+        navigate('/players');
+        break;
+      case 'live-stats':
+        navigate('/live-stats');
+        break;
+      case 'reports':
+        navigate('/reports');
+        break;
+      case 'heatmaps':
+        navigate('/heatmaps');
+        break;
+      case 'settings':
+        navigate('/settings');
+        break;
+      default:
+        navigate('/dashboard');
+    }
+  };
+}
+
+function SidebarLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPage = pathToSidebarId(location.pathname);
+
+  const go = (id: string) => {
+    const path =
+      id === 'live-stats'
+        ? '/live-stats'
+        : id === 'dashboard'
+          ? '/dashboard'
+          : `/${id}`;
+    navigate(path);
+  };
+
   return (
-    <div className="inline-block align-top" style={{ width }}>
-      <div className="mb-4 px-4">
-        <h2 className="text-gray-900">{title}</h2>
-        <div className="h-px bg-gray-200 mt-2"></div>
-      </div>
-      <div className="bg-white shadow-2xl" style={{ width }}>
-        {children}
-      </div>
+    <div className="flex min-h-screen bg-[#F5F7FA]">
+      <Sidebar currentPage={currentPage} onNavigate={go} />
+      <div className="flex-1 overflow-auto">{children}</div>
     </div>
   );
 }
 
-// Layout wrapper for pages with sidebar
-function SidebarLayout({ children, currentPage }: { children: React.ReactNode; currentPage: string }) {
+function MatchDetailsRoute() {
+  const { matchId } = useParams();
+  const id = Number(matchId);
+  const onNavigate = useAppNavigate();
+  if (!Number.isFinite(id)) return <Navigate to="/matches" replace />;
+  return <MatchDetailsPage matchId={id} onNavigate={onNavigate} />;
+}
+
+function AppRoutes() {
+  const onNavigate = useAppNavigate();
+
   return (
-    <div className="flex min-h-screen bg-[#F5F7FA]">
-      <Sidebar currentPage={currentPage} onNavigate={() => {}} />
-      <div className="flex-1">
-        {children}
-      </div>
-    </div>
+    <Routes>
+      <Route path="/" element={<LandingPage onNavigate={onNavigate} />} />
+      <Route path="/login" element={<LoginPage onNavigate={onNavigate} />} />
+
+      <Route
+        path="/dashboard"
+        element={
+          <SidebarLayout>
+            <Dashboard />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/matches"
+        element={
+          <SidebarLayout>
+            <MatchesPage onNavigate={onNavigate} />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/matches/:matchId"
+        element={
+          <SidebarLayout>
+            <MatchDetailsRoute />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/players"
+        element={
+          <SidebarLayout>
+            <PlayerInsightsPage onNavigate={onNavigate} />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/live-stats"
+        element={
+          <SidebarLayout>
+            <LiveStatsPage />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <SidebarLayout>
+            <ReportsPage />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/heatmaps"
+        element={
+          <SidebarLayout>
+            <HeatmapsPage />
+          </SidebarLayout>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <SidebarLayout>
+            <SettingsPage />
+          </SidebarLayout>
+        }
+      />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
 export default function App() {
-  const noopNavigate = () => {};
-
   return (
-    <div className="bg-gray-100 p-8">
+    <BrowserRouter>
       <Toaster />
-      <div className="mb-8">
-        <h1 className="text-4xl text-gray-900 mb-2">UC Davis Water Polo Analytics</h1>
-        <p className="text-gray-600 text-lg">Men's Team Performance Dashboard - All pages displayed as frames</p>
-      </div>
-
-      <div className="space-y-16">
-        {/* Landing Page Frame */}
-        <Frame title="Landing Page" width="100%">
-          <LandingPage onNavigate={noopNavigate} />
-        </Frame>
-
-        {/* Login/Register Frame */}
-        <Frame title="Login/Register" width="100%">
-          <LoginPage onNavigate={noopNavigate} />
-        </Frame>
-
-        {/* Dashboard Frame */}
-        <Frame title="Dashboard" width="100%">
-          <SidebarLayout currentPage="dashboard">
-            <Dashboard />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Matches Frame */}
-        <Frame title="Matches" width="100%">
-          <SidebarLayout currentPage="matches">
-            <MatchesPage onNavigate={noopNavigate} />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Match Details Frame */}
-        <Frame title="Match Details" width="100%">
-          <SidebarLayout currentPage="matches">
-            <MatchDetailsPage matchId={1} onNavigate={noopNavigate} />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Player Insights Frame */}
-        <Frame title="Player Insights" width="100%">
-          <SidebarLayout currentPage="players">
-            <PlayerInsightsPage onNavigate={noopNavigate} />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Reports Frame */}
-        <Frame title="Reports" width="100%">
-          <SidebarLayout currentPage="reports">
-            <ReportsPage />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Heatmaps Frame */}
-        <Frame title="Heatmaps" width="100%">
-          <SidebarLayout currentPage="heatmaps">
-            <HeatmapsPage />
-          </SidebarLayout>
-        </Frame>
-
-        {/* Live Stats Frame */}
-        <Frame title="Live Stats (Coach)" width="100%">
-          <SidebarLayout currentPage="live-stats">
-            <LiveStatsPage />
-          </SidebarLayout>
-        </Frame>
-      </div>
-
-      {/* Footer */}
-      <div className="mt-16 text-center text-gray-500 pb-8">
-        <p>© 2025 UC Davis Men's Water Polo - Analytics Platform</p>
-      </div>
-    </div>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }
