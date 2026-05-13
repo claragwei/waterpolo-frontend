@@ -1,10 +1,4 @@
-import { createClient } from '@jsr/supabase__supabase-js';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-
-const supabase = createClient(
-  `https://${projectId}.supabase.co`,
-  publicAnonKey
-);
+import { api } from '../services/api';
 
 export interface StartPossessionParams {
   matchId: number;
@@ -15,6 +9,7 @@ export interface StartPossessionParams {
 }
 
 export interface EndPossessionParams {
+  matchId: number;
   possessionId: number;
   endTimeSeconds: number;
   durationSeconds: number;
@@ -24,19 +19,14 @@ export interface EndPossessionParams {
 class PossessionViewModel {
   async startPossession(params: StartPossessionParams): Promise<number | null> {
     try {
-      const { data, error } = await supabase
-        .from('possession')
-        .insert({
-          match_id: params.matchId,
-          team_id: params.teamId,
-          quarter: params.quarter,
-          start_time_seconds: params.startTimeSeconds,
-          start_reason: params.startReason,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      return (data as { id: number } | null)?.id ?? null;
+      const row = await api.createPossession(params.matchId, {
+        team_id: params.teamId,
+        quarter: params.quarter,
+        start_time: params.startTimeSeconds,
+        outcome: params.startReason ?? undefined,
+        is_power_play: false,
+      });
+      return row.id;
     } catch (err) {
       console.error('PossessionViewModel.startPossession error:', err);
       return null;
@@ -45,15 +35,10 @@ class PossessionViewModel {
 
   async endPossession(params: EndPossessionParams): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('possession')
-        .update({
-          end_time_seconds: params.endTimeSeconds,
-          duration_seconds: params.durationSeconds,
-          end_reason: params.endReason,
-        })
-        .eq('id', params.possessionId);
-      if (error) throw error;
+      await api.patchPossession(params.matchId, params.possessionId, {
+        end_time: params.endTimeSeconds,
+        outcome: params.endReason,
+      });
     } catch (err) {
       console.error('PossessionViewModel.endPossession error:', err);
     }

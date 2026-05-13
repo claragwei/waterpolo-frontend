@@ -536,6 +536,7 @@ export default function LiveStatsPage() {
         opponent_team_id: opponentTeamId,
         match_date: new Date().toISOString(),
         location: 'UC Davis Aquatic Center',
+        status: 'in_progress',
       });
 
       setUcDavisPlayerStats(resolvedUcd);

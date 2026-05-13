@@ -1,10 +1,4 @@
-import { createClient } from '@jsr/supabase__supabase-js';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-
-const supabase = createClient(
-  `https://${projectId}.supabase.co`,
-  publicAnonKey
-);
+import { api } from '../services/api';
 
 export interface HeatmapPoint {
   x: number;
@@ -19,71 +13,29 @@ export interface MatchOption {
 
 class HeatmapViewModel {
   async fetchShotLocations(matchId: number | null = null): Promise<HeatmapPoint[]> {
-    try {
-      let query = supabase
-        .from('playbyplay')
-        .select('x_coordinate, y_coordinate')
-        .or('event_type.ilike.shot,event_type.ilike.goal');
-
-      if (matchId !== null) {
-        query = query.eq('match_id', matchId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      return (data ?? []).map((row: any) => ({
-        x: row.x_coordinate as number,
-        y: row.y_coordinate as number,
-      }));
-    } catch (err) {
-      console.error('HeatmapViewModel.fetchShotLocations error:', err);
-      throw err;
-    }
+    const pts = await api.getHeatmapPoints({
+      matchId: matchId === null ? undefined : matchId,
+      kind: 'shots',
+    });
+    return pts.map((p) => ({ x: p.x, y: p.y }));
   }
 
   async fetchGoalLocations(matchId: number | null = null): Promise<HeatmapPoint[]> {
-    try {
-      let query = supabase
-        .from('playbyplay')
-        .select('x_coordinate, y_coordinate')
-        .ilike('event_type', 'goal');
-
-      if (matchId !== null) {
-        query = query.eq('match_id', matchId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      return (data ?? []).map((row: any) => ({
-        x: row.x_coordinate as number,
-        y: row.y_coordinate as number,
-      }));
-    } catch (err) {
-      console.error('HeatmapViewModel.fetchGoalLocations error:', err);
-      throw err;
-    }
+    const pts = await api.getHeatmapPoints({
+      matchId: matchId === null ? undefined : matchId,
+      kind: 'goals',
+    });
+    return pts.map((p) => ({ x: p.x, y: p.y }));
   }
 
   async fetchMatches(): Promise<MatchOption[]> {
-    try {
-      const { data, error } = await supabase
-        .from('match')
-        .select('id, match_date, opponent_team_id, team:opponent_team_id(name)')
-        .order('match_date', { ascending: false });
-
-      if (error) throw error;
-
-      return (data ?? []).map((row: any) => ({
-        id: row.id as number,
-        match_date: row.match_date as string,
-        opponent_name: row.team?.name ?? `Opponent #${row.opponent_team_id}`,
-      }));
-    } catch (err) {
-      console.error('HeatmapViewModel.fetchMatches error:', err);
-      throw err;
-    }
+    const [matches, teams] = await Promise.all([api.getMatches({ limit: 100 }), api.getTeams()]);
+    const nameById = new Map(teams.map((t) => [t.id, t.name]));
+    return matches.map((m) => ({
+      id: m.id,
+      match_date: m.match_date,
+      opponent_name: nameById.get(m.opponent_team_id) ?? `Team #${m.opponent_team_id}`,
+    }));
   }
 }
 

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Water polo pool illustration">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#022851"/>
+      <stop offset="100%" style="stop-color:#0a3d6e"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g)"/>
+  <rect x="60" y="120" width="680" height="360" rx="24" fill="#1e6091" opacity="0.55"/>
+  <rect x="80" y="140" width="640" height="320" rx="16" fill="#2d8bc4" opacity="0.35"/>
+  <line x1="400" y1="140" x2="400" y2="460" stroke="#FFBF00" stroke-width="4" opacity="0.7"/>
+  <circle cx="400" cy="300" r="48" fill="none" stroke="#FFBF00" stroke-width="5" opacity="0.85"/>
+  <circle cx="520" cy="260" r="28" fill="#FFBF00" opacity="0.9"/>
+  <text x="400" y="540" text-anchor="middle" fill="#c8d8e8" font-family="system-ui,sans-serif" font-size="22">UC Davis Water Polo</text>
+</svg>

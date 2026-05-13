@@ -37,10 +37,13 @@ export function useHeatmapViewModel(): UseHeatmapViewModelResult {
 
   // Load matches list once on mount
   useEffect(() => {
-    heatmapViewModel.fetchMatches()
+    void heatmapViewModel
+      .fetchMatches()
       .then(setMatches)
       .catch((err) => {
         console.error('Failed to load matches for heatmap filter:', err);
+        setMatches([]);
+        setError(err instanceof Error ? err.message : 'Failed to load matches for heatmap');
       });
   }, []);
 

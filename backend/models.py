@@ -21,6 +21,7 @@ class Player(BaseModel):
     jersey_number = IntegerField()
     position = CharField(null=True)        # 'field' | 'goalie'
     is_active = BooleanField(default=True)
+    photo_url = CharField(null=True, max_length=512)
     # Denormalized career totals — updated after every match stat upsert
     total_goals = IntegerField(default=0)
     total_assists = IntegerField(default=0)

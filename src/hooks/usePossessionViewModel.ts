@@ -15,10 +15,11 @@ interface UsePossessionViewModelResult {
 
 export function usePossessionViewModel(): UsePossessionViewModelResult {
   const [activePossessionId, setActivePossessionId] = useState<number | null>(null);
-  // Ref so callbacks (setTimeout, async) always see the current id without stale closures
   const activePossessionIdRef = useRef<number | null>(null);
+  const activeMatchIdRef = useRef<number | null>(null);
 
   const startPossession = useCallback((params: StartPossessionParams) => {
+    activeMatchIdRef.current = params.matchId;
     possessionViewModel.startPossession(params).then((id) => {
       activePossessionIdRef.current = id;
       setActivePossessionId(id);
@@ -27,10 +28,15 @@ export function usePossessionViewModel(): UsePossessionViewModelResult {
 
   const endPossession = useCallback((params: EndParams) => {
     const possId = activePossessionIdRef.current;
-    if (!possId) return;
+    const mid = activeMatchIdRef.current;
+    if (!possId || !mid) return;
     activePossessionIdRef.current = null;
     setActivePossessionId(null);
-    possessionViewModel.endPossession({ possessionId: possId, ...params });
+    void possessionViewModel.endPossession({
+      matchId: mid,
+      possessionId: possId,
+      ...params,
+    });
   }, []);
 
   return { activePossessionId, startPossession, endPossession };

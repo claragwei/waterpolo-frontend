@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 from fastapi import FastAPI, Depends, HTTPException, Query
+from peewee import fn
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import db
@@ -28,12 +29,25 @@ from auth import verify_api_key
 
 app = FastAPI(title="UC Davis Water Polo API")
 
+
+@app.get("/api/health")
+async def health():
+    """Cheap check that the API process is up (does not hit the database)."""
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
 
 def _parse_cors_origins() -> list[str]:
-    raw = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174,"
+        "http://localhost:4173,http://127.0.0.1:4173,"
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
     out: list[str] = []
     for part in raw.split(","):
         o = part.strip().strip('"').strip("'")
@@ -42,20 +56,38 @@ def _parse_cors_origins() -> list[str]:
     return out
 
 
-origins = _parse_cors_origins()
-# Vercel preview URLs change every deploy; regex keeps CORS working without
-# editing Render each time. Override with CORS_ORIGIN_REGEX= to disable.
-_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app").strip()
+# Browsers send Origin on cross-site requests. Starlette returns 400 on preflight if the
+# origin is not listed here AND does not match allow_origin_regex.
+# NOTE: Setting CORS_ORIGIN_REGEX to an empty string in a host dashboard used to disable
+# the regex entirely; we treat "" as "use default" so deploys don't silently break Vercel.
+_DEFAULT_CORS_REGEX = r"https://.+\.(vercel\.app|netlify\.app|lovable\.app)(:\d+)?$"
+_origins = _parse_cors_origins()
+_cors_regex_raw = os.getenv("CORS_ORIGIN_REGEX")
+if _cors_regex_raw is None:
+    _cors_regex_val: str | None = _DEFAULT_CORS_REGEX
+else:
+    s = _cors_regex_raw.strip()
+    if s.lower() in ("off", "none", "false", "-"):
+        _cors_regex_val = None
+    elif s == "":
+        _cors_regex_val = _DEFAULT_CORS_REGEX
+    else:
+        _cors_regex_val = s
+
 _cors_kw: dict = {
-    "allow_origins": origins,
+    "allow_origins": _origins,
     "allow_credentials": True,
     "allow_methods": ["*"],
     "allow_headers": ["*"],
 }
-if _cors_regex:
-    _cors_kw["allow_origin_regex"] = _cors_regex
+if _cors_regex_val:
+    _cors_kw["allow_origin_regex"] = _cors_regex_val
 
 app.add_middleware(CORSMiddleware, **_cors_kw)
+print(
+    f"CORS: {len(_origins)} explicit origin(s); "
+    f"allow_origin_regex={'disabled' if not _cors_regex_val else _cors_regex_val!r}"
+)
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -66,6 +98,10 @@ async def startup():
     try:
         db.connect(reuse_if_open=True)
         create_tables()
+        try:
+            db.execute_sql("ALTER TABLE player ADD COLUMN IF NOT EXISTS photo_url VARCHAR(512);")
+        except Exception as mig_e:
+            print(f"   (player.photo_url migration skipped: {mig_e})")
         # Ensure UC Davis always exists as team ID 1
         if not Team.get_or_none(Team.id == 1):
             Team.create(id=1, name='UC Davis', short_name='UCD', is_uc_davis=True)
@@ -105,6 +141,7 @@ def _player_to_dict(p: Player) -> dict:
         "jersey_number": p.jersey_number,
         "position": p.position,
         "is_active": p.is_active,
+        "photo_url": getattr(p, "photo_url", None),
         "total_goals": p.total_goals,
         "total_assists": p.total_assists,
         "total_shots": p.total_shots,
@@ -309,6 +346,64 @@ async def get_players(
     return [_player_to_dict(p) for p in query]
 
 
+@app.get("/api/players/batch-summary")
+async def players_batch_summary(team_id: int = Query(1, ge=1)):
+    """
+    One request for roster + season aggregates (leaderboard) to avoid N+1
+    averages/history calls from the insights page.
+    """
+    players = list(Player.select().where((Player.team == team_id) & (Player.is_active == True)))
+    if not players:
+        return []
+
+    rows = (
+        PlayerMatchStats.select(
+            PlayerMatchStats.player,
+            fn.COUNT(PlayerMatchStats.id).alias("games"),
+            fn.SUM(PlayerMatchStats.goals).alias("total_goals"),
+            fn.SUM(PlayerMatchStats.shots).alias("total_shots"),
+            fn.SUM(PlayerMatchStats.assists).alias("total_assists"),
+            fn.SUM(PlayerMatchStats.steals).alias("total_steals"),
+            fn.SUM(PlayerMatchStats.blocks).alias("total_blocks"),
+        )
+        .join(Player)
+        .where(Player.team == team_id)
+        .group_by(PlayerMatchStats.player)
+    )
+    by_player: dict[int, dict] = {}
+    for r in rows:
+        pid = r.player.id
+        shots = int(r.total_shots or 0)
+        goals = int(r.total_goals or 0)
+        by_player[pid] = {
+            "games_played": int(r.games or 0),
+            "total_goals": goals,
+            "total_shots": shots,
+            "total_assists": int(r.total_assists or 0),
+            "total_steals": int(r.total_steals or 0),
+            "total_blocks": int(r.total_blocks or 0),
+            "shot_percentage": round((goals / shots * 100) if shots else 0.0, 1),
+        }
+
+    out: list[dict] = []
+    for p in players:
+        agg = by_player.get(p.id, {})
+        games = agg.get("games_played", 0)
+        out.append(
+            {
+                **_player_to_dict(p),
+                "games_played": games,
+                "total_goals": agg.get("total_goals", 0),
+                "total_shots": agg.get("total_shots", 0),
+                "total_assists": agg.get("total_assists", 0),
+                "total_steals": agg.get("total_steals", 0),
+                "total_blocks": agg.get("total_blocks", 0),
+                "shot_percentage": agg.get("shot_percentage", 0.0),
+            }
+        )
+    return out
+
+
 @app.get("/api/players/{player_id}", response_model=PlayerResponse)
 async def get_player(player_id: int):
     player = Player.get_or_none(Player.id == player_id)
@@ -322,8 +417,14 @@ async def create_player(body: PlayerCreate):
     team = Team.get_or_none(Team.id == body.team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    player = Player.create(team=team, name=body.name, jersey_number=body.jersey_number,
-                           position=body.position, is_active=body.is_active)
+    player = Player.create(
+        team=team,
+        name=body.name,
+        jersey_number=body.jersey_number,
+        position=body.position,
+        is_active=body.is_active,
+        photo_url=body.photo_url,
+    )
     return _player_to_dict(player)
 
 
@@ -368,6 +469,38 @@ async def get_player_averages(player_id: int):
     }
 
 
+@app.get("/api/players/{player_id}/match-history")
+async def player_match_history(player_id: int, limit: int = Query(40)):
+    player = Player.get_or_none(Player.id == player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    q = (
+        PlayerMatchStats.select(PlayerMatchStats, Match)
+        .join(Match, on=(PlayerMatchStats.match == Match.id))
+        .where(PlayerMatchStats.player == player_id)
+        .order_by(Match.match_date.desc())
+        .limit(limit)
+    )
+    out: list[dict] = []
+    for s in q:
+        m = s.match
+        opp = Team.get_or_none(Team.id == m.opponent_team_id)
+        out.append(
+            {
+                "match_id": m.id,
+                "match_date": m.match_date.isoformat() if hasattr(m.match_date, "isoformat") else str(m.match_date),
+                "opponent_name": opp.name if opp else "?",
+                "goals": s.goals,
+                "shots": s.shots,
+                "assists": s.assists,
+                "steals": s.steals,
+                "blocks": s.blocks,
+                "turnovers": s.turnovers,
+            }
+        )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Matches
 # ---------------------------------------------------------------------------
@@ -396,12 +529,13 @@ async def create_match(body: MatchCreate):
         raise HTTPException(status_code=404, detail="UC Davis team not found")
     if not opp_team:
         raise HTTPException(status_code=404, detail="Opponent team not found")
+    status = body.status or "scheduled"
     match = Match.create(
         uc_davis_team=uc_team,
         opponent_team=opp_team,
         match_date=body.match_date,
         location=body.location,
-        status='in_progress',
+        status=status,
     )
     return _match_to_dict(match)
 
@@ -415,6 +549,58 @@ async def update_match(match_id: int, body: MatchUpdate):
         setattr(match, field, value)
     match.save()
     return _match_to_dict(match)
+
+
+@app.get("/api/reports/match/{match_id}/bundle")
+async def match_report_bundle(match_id: int):
+    """Single payload for match / quarter / halftime / postgame reports (Postgres)."""
+    match = Match.get_or_none(Match.id == match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    opp = Team.get_or_none(Team.id == match.opponent_team_id)
+    stats = list(PlayerMatchStats.select().where(PlayerMatchStats.match == match_id))
+    plays = list(
+        PlayByPlay.select()
+        .where(PlayByPlay.match == match_id)
+        .order_by(PlayByPlay.quarter, PlayByPlay.game_time, PlayByPlay.id)
+    )
+    refs = list(
+        RefereeCall.select()
+        .where(RefereeCall.match == match_id)
+        .order_by(RefereeCall.quarter, RefereeCall.game_time, RefereeCall.id)
+    )
+    poss = list(
+        Possession.select()
+        .where(Possession.match == match_id)
+        .order_by(Possession.id)
+    )
+    return {
+        "match": _match_to_dict(match),
+        "opponent_name": opp.name if opp else "Opponent",
+        "player_stats": [_stats_to_dict(s) for s in stats],
+        "plays": [_play_to_dict(p) for p in plays],
+        "referee_calls": [_ref_call_to_dict(r) for r in refs],
+        "possessions": [_possession_to_dict(p) for p in poss],
+    }
+
+
+@app.get("/api/reports/season-summary")
+async def season_summary(team_id: int = Query(1, ge=1)):
+    """Roster + completed match count for UC Davis (or chosen team) season overview."""
+    team = Team.get_or_none(Team.id == team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    players = list(Player.select().where((Player.team == team_id) & (Player.is_active == True)))
+    completed = (
+        Match.select()
+        .where((Match.uc_davis_team == team_id) & (Match.status == "completed"))
+        .count()
+    )
+    return {
+        "team": _team_to_dict(team),
+        "active_players": [_player_to_dict(p) for p in players],
+        "completed_home_matches": completed,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +668,33 @@ async def overwrite_match_stats(match_id: int, body: StatsOverwrite):
 
     update_player_career_stats(player)
     return _stats_to_dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Heatmap (aggregated play coordinates from Postgres)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/heatmap/points")
+async def get_heatmap_points(
+    match_id: Optional[int] = Query(None),
+    kind: str = Query("shots", pattern="^(shots|goals)$"),
+):
+    """Points for heatmap: kind=shots includes shot+goal events; kind=goals goals only."""
+    q = PlayByPlay.select(PlayByPlay.x_coordinate, PlayByPlay.y_coordinate).where(
+        PlayByPlay.x_coordinate.is_null(False),
+        PlayByPlay.y_coordinate.is_null(False),
+    )
+    if match_id is not None:
+        q = q.where(PlayByPlay.match == match_id)
+    if kind == "goals":
+        q = q.where(PlayByPlay.event_type == "goal")
+    else:
+        q = q.where(PlayByPlay.event_type.in_(["shot", "goal"]))
+    return [
+        {"x": float(p.x_coordinate), "y": float(p.y_coordinate)}
+        for p in q
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,8 @@ import LiveStatsPage from './components/LiveStatsPageDual';
 import SettingsPage from './components/SettingsPage';
 import Sidebar from './components/Sidebar';
 import { Toaster } from './components/ui/sonner';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import { supabaseBrowser } from './lib/supabaseBrowser';
 
 function pathToSidebarId(pathname: string): string {
   if (pathname.startsWith('/matches/')) return 'matches';
@@ -69,6 +71,21 @@ function useAppNavigate() {
   };
 }
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (!supabaseBrowser) {
+    return <>{children}</>;
+  }
+  if (loading) {
+    return <div className="p-12 text-center text-gray-600 bg-[#F5F7FA] min-h-screen">Loading session…</div>;
+  }
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return <>{children}</>;
+}
+
 function SidebarLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -92,6 +109,14 @@ function SidebarLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProtectedApp({ children }: { children: React.ReactNode }) {
+  return (
+    <RequireAuth>
+      <SidebarLayout>{children}</SidebarLayout>
+    </RequireAuth>
+  );
+}
+
 function MatchDetailsRoute() {
   const { matchId } = useParams();
   const id = Number(matchId);
@@ -111,65 +136,65 @@ function AppRoutes() {
       <Route
         path="/dashboard"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <Dashboard />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/matches"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <MatchesPage onNavigate={onNavigate} />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/matches/:matchId"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <MatchDetailsRoute />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/players"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <PlayerInsightsPage onNavigate={onNavigate} />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/live-stats"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <LiveStatsPage />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/reports"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <ReportsPage />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/heatmaps"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <HeatmapsPage />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
       <Route
         path="/settings"
         element={
-          <SidebarLayout>
+          <ProtectedApp>
             <SettingsPage />
-          </SidebarLayout>
+          </ProtectedApp>
         }
       />
 
@@ -181,8 +206,10 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Toaster />
-      <AppRoutes />
+      <AuthProvider>
+        <Toaster />
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

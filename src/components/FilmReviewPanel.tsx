@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { api } from '../services/api';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
+import { useAuth } from '../auth/AuthContext';
+import { supabaseBrowser } from '../lib/supabaseBrowser';
+import { uploadMatchQuarterVideo } from '../services/matchVideoStorage';
 
 interface FilmEvent {
   id: string;
@@ -36,6 +39,7 @@ export default function FilmReviewPanel({
 }: FilmReviewPanelProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const { user } = useAuth();
 
   const [videoSrc, setVideoSrc] = useState('');
   const [videoOffsetSec, setVideoOffsetSec] = useState(0);
@@ -43,6 +47,7 @@ export default function FilmReviewPanel({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [autoplayOnSeek, setAutoplayOnSeek] = useState(false);
   const [syncCheckpoints, setSyncCheckpoints] = useState<SyncCheckpoint[]>([]);
+  const [cloudBusy, setCloudBusy] = useState(false);
 
   const orderedEvents = useMemo(
     () =>
@@ -161,6 +166,33 @@ export default function FilmReviewPanel({
     }
   };
 
+  const handleCloudUpload = async (file: File | null) => {
+    if (!file || !matchId) {
+      toast.error('Select a video file');
+      return;
+    }
+    if (!supabaseBrowser || !user) {
+      toast.error('Sign in and configure Supabase Storage (bucket from VITE_SUPABASE_MATCH_VIDEO_BUCKET)');
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const url = await uploadMatchQuarterVideo(matchId, selectedQuarter, file);
+      setVideoSrc(url);
+      await api.upsertMatchVideoSync(matchId, {
+        quarter: selectedQuarter,
+        video_url: url,
+        video_offset_sec: videoOffsetSec,
+      });
+      toast.success(`Uploaded to storage and saved for Q${selectedQuarter}`);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -198,6 +230,18 @@ export default function FilmReviewPanel({
                 onChange={(e) => handleLoadFile(e.target.files?.[0] ?? null)}
               />
             </label>
+            {supabaseBrowser && user && matchId != null && (
+              <label className="inline-flex items-center justify-center rounded border border-[#022851] bg-[#022851]/5 px-3 py-2 text-sm cursor-pointer hover:bg-[#022851]/10 disabled:opacity-50">
+                {cloudBusy ? 'Uploading…' : 'Upload to cloud'}
+                <input
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  disabled={cloudBusy}
+                  onChange={(e) => void handleCloudUpload(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-2">
