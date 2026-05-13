@@ -85,14 +85,6 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               >
                 Start Analyzing
               </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-white/20 text-white hover:bg-white/10"
-                onClick={goApp}
-              >
-                View Demo
-              </Button>
             </div>
           </div>
 
@@ -130,23 +122,6 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               </div>
             );
           })}
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="max-w-7xl mx-auto px-6 py-20">
-        <div className="bg-gradient-to-r from-[#FFBF00] to-[#C69214] rounded-2xl p-12 text-center">
-          <h2 className="text-3xl text-[#022851] mb-4">Ready to Elevate Your Game?</h2>
-          <p className="text-[#022851]/90 text-lg mb-8">
-            Join the UC Davis coaching staff using advanced analytics for data-driven insights
-          </p>
-          <Button
-            size="lg"
-            className="bg-white text-[#022851] hover:bg-gray-100 px-8"
-            onClick={() => onNavigate('dashboard')}
-          >
-            Get Started Now
-          </Button>
         </div>
       </section>
 

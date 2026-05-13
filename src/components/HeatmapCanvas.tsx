@@ -5,57 +5,102 @@ interface HeatmapCanvasProps {
   width?: number;
 }
 
-function drawHeatmapLayer(
+const GRID_COLS = 72;
+
+function buildDensityGrid(
+  points: Array<{ x: number; y: number }>,
+  cols: number,
+  rows: number,
+): Float32Array {
+  const grid = new Float32Array(cols * rows);
+  for (const pt of points) {
+    const gx = Math.min(cols - 1, Math.max(0, Math.floor((pt.x / 100) * cols)));
+    const gy = Math.min(rows - 1, Math.max(0, Math.floor((pt.y / 100) * rows)));
+    grid[gy * cols + gx] += 1;
+  }
+  return grid;
+}
+
+function boxBlur2D(src: Float32Array, cols: number, rows: number): Float32Array {
+  const dst = new Float32Array(cols * rows);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      let sum = 0;
+      let c = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+            sum += src[ny * cols + nx];
+            c++;
+          }
+        }
+      }
+      dst[y * cols + x] = sum / c;
+    }
+  }
+  return dst;
+}
+
+/** Normalize by max density so sparse vs busy games both use the color scale. */
+function colorForNormalizedT(t: number): [number, number, number, number] {
+  if (t <= 0.02) return [0, 0, 0, 0];
+  // Cool (sparse) → yellow → red (dense)
+  if (t < 0.35) {
+    const u = t / 0.35;
+    return [30, 100 + 100 * u, 200 - 80 * u, Math.round(25 + 90 * u)];
+  }
+  if (t < 0.65) {
+    const u = (t - 0.35) / 0.3;
+    return [200 + 55 * u, 200 - 80 * u, 30, Math.round(115 + 90 * u)];
+  }
+  const u = (t - 0.65) / 0.35;
+  return [255, Math.round(120 - 90 * u), Math.round(30 - 15 * u), Math.round(205 + 50 * u)];
+}
+
+function drawDensityHeatmap(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  points: Array<{ x: number; y: number }>
+  points: Array<{ x: number; y: number }>,
 ) {
-  const offscreen = document.createElement('canvas');
-  offscreen.width = w;
-  offscreen.height = h;
-  const octx = offscreen.getContext('2d')!;
+  const rows = Math.max(36, Math.round(GRID_COLS * (h / w)));
+  let grid = buildDensityGrid(points, GRID_COLS, rows);
+  grid = boxBlur2D(grid, GRID_COLS, rows);
+  grid = boxBlur2D(grid, GRID_COLS, rows);
 
-  const radius = Math.min(w, h) * 0.08;
-  octx.globalCompositeOperation = 'screen';
-
-  for (const pt of points) {
-    const cx = (pt.x / 100) * w;
-    const cy = (pt.y / 100) * h;
-    const grad = octx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    grad.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
-    grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.15)');
-    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    octx.fillStyle = grad;
-    octx.beginPath();
-    octx.arc(cx, cy, radius, 0, Math.PI * 2);
-    octx.fill();
+  let max = 0;
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] > max) max = grid[i];
   }
+  if (max < 1e-9) max = 1;
 
-  const imgData = octx.getImageData(0, 0, w, h);
-  const d = imgData.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const brightness = d[i];
-    if (brightness < 8) {
-      d[i] = 0; d[i + 1] = 0; d[i + 2] = 0; d[i + 3] = 0;
-    } else if (brightness < 85) {
-      const t = brightness / 85;
-      d[i] = 255; d[i + 1] = Math.round(215 * t); d[i + 2] = 0;
-      d[i + 3] = Math.round(160 * t);
-    } else if (brightness < 170) {
-      const t = (brightness - 85) / 85;
-      d[i] = 255; d[i + 1] = Math.round(215 * (1 - t * 0.7)); d[i + 2] = 0;
-      d[i + 3] = Math.round(160 + 60 * t);
-    } else {
-      const t = (brightness - 170) / 85;
-      d[i] = 255; d[i + 1] = Math.round(65 * (1 - t)); d[i + 2] = 0;
-      d[i + 3] = Math.min(255, Math.round(220 + 35 * t));
-    }
+  const small = document.createElement('canvas');
+  small.width = GRID_COLS;
+  small.height = rows;
+  const sctx = small.getContext('2d');
+  if (!sctx) return;
+
+  const img = sctx.createImageData(GRID_COLS, rows);
+  const d = img.data;
+  for (let i = 0; i < grid.length; i++) {
+    const t = grid[i] / max;
+    const [r, g, b, a] = colorForNormalizedT(t);
+    const o = i * 4;
+    d[o] = r;
+    d[o + 1] = g;
+    d[o + 2] = b;
+    d[o + 3] = a;
   }
-  octx.putImageData(imgData, 0, 0);
+  sctx.putImageData(img, 0, 0);
 
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(offscreen, 0, 0);
+  ctx.drawImage(small, 0, 0, w, h);
+  ctx.restore();
 }
 
 export default function HeatmapCanvas({ points, width }: HeatmapCanvasProps) {
@@ -68,12 +113,12 @@ export default function HeatmapCanvas({ points, width }: HeatmapCanvasProps) {
     if (!canvas || !pool) return;
 
     function render() {
-      const w = pool!.clientWidth;
-      const h = pool!.clientHeight;
-      canvas!.width = w;
-      canvas!.height = h;
+      const w = pool.clientWidth;
+      const h = pool.clientHeight;
+      canvas.width = w;
+      canvas.height = h;
 
-      const ctx = canvas!.getContext('2d');
+      const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       ctx.clearRect(0, 0, w, h);
@@ -90,7 +135,7 @@ export default function HeatmapCanvas({ points, width }: HeatmapCanvasProps) {
         ctx.textAlign = 'start';
         ctx.textBaseline = 'alphabetic';
       } else {
-        drawHeatmapLayer(ctx, w, h, safePoints);
+        drawDensityHeatmap(ctx, w, h, safePoints);
       }
     }
 

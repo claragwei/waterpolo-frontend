@@ -1,8 +1,8 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { FileText, Download, Calendar, User, Trophy, Clock, Flag, Loader2, ExternalLink } from 'lucide-react';
+import { FileText, Download, User, Trophy, Clock, Flag, Loader2, ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
@@ -24,6 +24,7 @@ interface ApiMatch {
 
 export default function ReportsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showQuarterReport, setShowQuarterReport] = useState(false);
   const [showHalftimeReport, setShowHalftimeReport] = useState(false);
   const [showPlayerReport, setShowPlayerReport] = useState(false);
@@ -80,6 +81,17 @@ export default function ReportsPage() {
   useEffect(() => {
     void loadDbMatches();
   }, [loadDbMatches]);
+
+  /** Deep link from Live Stats at halftime: `/reports?matchId=…&halftime=1` */
+  useEffect(() => {
+    if (searchParams.get('halftime') !== '1') return;
+    const mid = searchParams.get('matchId');
+    if (mid && /^\d+$/.test(mid)) setReportMatchId(mid);
+    setShowHalftimeReport(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('halftime');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     let cancel = false;
@@ -191,47 +203,31 @@ export default function ReportsPage() {
   const reportTemplates = [
     {
       id: 1,
-      name: 'Match / Postgame PDF',
-      description: 'Full match totals and player box scores from the database',
+      name: 'Match / postgame PDF',
+      description: 'Full match totals and player box scores',
       icon: Trophy,
       action: () => postgamePdf(),
     },
     {
       id: 2,
       name: 'Player analytics',
-      description: 'Career averages and recent games for one player',
+      description: 'Career averages and recent games',
       icon: User,
       action: () => void loadPlayerReport(),
     },
     {
       id: 3,
-      name: 'Season summary',
-      description: 'Active roster and completed home match count',
-      icon: Calendar,
-      action: () => void loadSeasonReport(),
+      name: 'Quarter report',
+      description: 'Per-quarter goals, shots, possession, and referee calls',
+      icon: Clock,
+      action: () => setShowQuarterReport(true),
     },
     {
       id: 4,
-      name: 'Team analytics (PDF)',
-      description: 'Same as postgame PDF for the selected match',
-      icon: FileText,
-      action: () => postgamePdf(),
-    },
-    {
-      id: 5,
-      name: 'Quarter Report',
-      description: 'Per-quarter goals, shots, possession, referee (from plays)',
-      icon: Clock,
-      action: () => setShowQuarterReport(true),
-      highlight: true,
-    },
-    {
-      id: 6,
-      name: 'Halftime Report',
-      description: 'First-half (Q1+Q2) aggregates',
+      name: 'Halftime report',
+      description: 'First half (Q1+Q2) summary',
       icon: Flag,
       action: () => setShowHalftimeReport(true),
-      highlight: true,
     },
   ];
 
@@ -312,10 +308,9 @@ export default function ReportsPage() {
           ) : null}
         </DialogContent>
       </Dialog>
-
+      
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>
-        <p className="text-gray-600">PDFs and views are built from your FastAPI / Postgres data</p>
         {bundleLoading ? (
           <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
             <Loader2 className="h-3 w-3 animate-spin" /> Syncing report bundle…
@@ -391,10 +386,7 @@ export default function ReportsPage() {
       </Dialog>
 
       <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
-        <h2 className="text-[#022851] mb-2">Data source (all reports below)</h2>
-        <p className="text-gray-600 text-sm mb-4">
-          Choose a match — templates and PDFs use the same loaded bundle (plays, stats, possessions).
-        </p>
+        <h2 className="text-[#022851] mb-4">Match</h2>
         {dbMatches.length === 0 ? (
           <p className="text-gray-500 text-sm">No matches yet — log a game on Live Stats.</p>
         ) : (
@@ -504,7 +496,7 @@ export default function ReportsPage() {
                       onClick={template.action}
                     >
                       Generate
-                    </Button>
+                      </Button>
                   </div>
                 </div>
               </Card>

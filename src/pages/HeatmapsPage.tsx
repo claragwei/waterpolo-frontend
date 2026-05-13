@@ -120,19 +120,15 @@ export default function HeatmapsPage() {
         )}
 
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
-          <span className="text-xs text-gray-500">Density:</span>
+        <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+          <span className="text-xs text-gray-500">Relative density (this view scales to the busiest cell):</span>
           <div className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-full bg-yellow-400"></span>
-            <span className="text-xs text-gray-500">Low</span>
+            <span className="inline-block w-8 h-3 rounded-sm bg-gradient-to-r from-cyan-700/80 to-amber-400/90" />
+            <span className="text-xs text-gray-500">Fewer shots</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-full bg-orange-500"></span>
-            <span className="text-xs text-gray-500">Medium</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-full bg-red-600"></span>
-            <span className="text-xs text-gray-500">High</span>
+            <span className="inline-block w-8 h-3 rounded-sm bg-gradient-to-r from-amber-400 to-red-600" />
+            <span className="text-xs text-gray-500">More shots</span>
           </div>
         </div>
       </Card>

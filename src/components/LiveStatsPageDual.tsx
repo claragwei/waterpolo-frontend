@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { usePossessionViewModel } from '../hooks/usePossessionViewModel';
 import { toast } from 'sonner@2.0.3';
@@ -83,6 +84,7 @@ interface ReplayEvent {
 // ---------------------------------------------------------------------------
 
 export default function LiveStatsPage() {
+  const navigate = useNavigate();
   // ---- Match / game state ----
   const [matchId, setMatchId] = useState<number | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
@@ -92,6 +94,7 @@ export default function LiveStatsPage() {
   const [isInBreak, setIsInBreak] = useState(false);
   const [breakTimeRemaining, setBreakTimeRemaining] = useState(0);
   const [shotClock, setShotClock] = useState<number | null>(null);
+  const previousQuarterRef = useRef<number | null>(null);
 
   // ---- Player / team stats ----
   const [ucDavisPlayerStats, setUcDavisPlayerStats] = useState<PlayerStat[]>(initialUcDavisPlayers);
@@ -328,6 +331,25 @@ export default function LiveStatsPage() {
       toast.info(breakMessage, { duration: 5000 });
     }
   }, [gameTime, isGameActive, isInBreak, currentQuarter]);
+
+  // Q2 → Q3: prompt to open halftime report on Reports (not auto-PDF)
+  useEffect(() => {
+    if (previousQuarterRef.current === null) {
+      previousQuarterRef.current = currentQuarter;
+      return;
+    }
+    const prev = previousQuarterRef.current;
+    if (prev === 2 && currentQuarter === 3) {
+      const path =
+        matchId != null ? `/reports?matchId=${matchId}&halftime=1` : '/reports?halftime=1';
+      toast.message('Halftime — generate the Q1+Q2 report?', {
+        description: 'Opens Reports with the halftime view for this match.',
+        action: { label: 'Open Reports', onClick: () => navigate(path) },
+        duration: 14_000,
+      });
+    }
+    previousQuarterRef.current = currentQuarter;
+  }, [currentQuarter, matchId, navigate]);
 
   // Break countdown
   useEffect(() => {

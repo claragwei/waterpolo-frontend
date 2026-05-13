@@ -184,10 +184,6 @@ export default function PlayerInsightsPage({ onNavigate: _onNavigate }: PlayerIn
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Player Insights</h1>
-        <p className="text-gray-600">
-          Performance from logged matches (Postgres). Team: {teamLabel}. Shot accuracy is goals ÷ shots from box
-          scores.
-        </p>
       </div>
 
       <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
