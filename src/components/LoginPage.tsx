@@ -1,4 +1,12 @@
-import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js'; // <-- Add this import
+
+// Add these 3 lines right here, BEFORE your component function
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+//all of this stuff above needs to be configured
+
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -11,10 +19,72 @@ interface LoginPageProps {
 
 export default function LoginPage({ onNavigate }: LoginPageProps) {
   const [isLogin, setIsLogin] = useState(true);
+  
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('player');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    // 1. Check if someone is already logged in when the page loads
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // 2. Listen for any logins or logouts that happen while the page is open
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Cleanup listener
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onNavigate('dashboard');
+
+    console.log("Sending to Supabase:", { email, password });
+
+    setErrorMsg('');
+    setIsLoading(true);
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        onNavigate('dashboard');
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: name, role: role } }
+        });
+        if (error) throw error;
+
+        if (data.session) {
+          onNavigate('dashboard');
+        } else {
+          setErrorMsg('Check your email to confirm your account!');
+          setIsLogin(true);
+        }
+      }
+    } catch (error: any) {
+      setErrorMsg(error.message);
+      if (isLogin && error.message.includes('Invalid login credentials')) {
+          setErrorMsg('Account not found or incorrect password. Please create an account.');
+          setIsLogin(false);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -77,16 +147,34 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {!isLogin && (
-              <div>
-                <Label htmlFor="name" className="text-[#022851]">Full Name</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="John Doe"
-                  className="mt-2 border-gray-300"
-                  required
-                />
-              </div>
+              <>
+                <div>
+                  <Label htmlFor="name" className="text-[#022851]">Full Name</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="John Doe"
+                    className="mt-2 border-gray-300"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                
+                {/* This is where the new dropdown gets pasted */}
+                <div>
+                  <Label htmlFor="role" className="text-[#022851]">I am a...</Label>
+                  <select 
+                    id="role"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm mt-2 outline-none focus:ring-2 focus:ring-[#022851]"
+                  >
+                    <option value="player">Player / Student</option>
+                    <option value="coach">Coach / Educator</option>
+                  </select>
+                </div>
+              </>
             )}
 
             <div>
@@ -99,6 +187,8 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                   placeholder="you@example.com"
                   className="pl-10 border-gray-300"
                   required
+                  value={email}                               // <-- ADD THIS LINE
+                  onChange={(e) => setEmail(e.target.value)}  // <-- ADD THIS LINE
                 />
               </div>
             </div>
@@ -113,6 +203,8 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                   placeholder="••••••••"
                   className="pl-10 border-gray-300"
                   required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
             </div>
@@ -131,10 +223,16 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
 
             <Button
               type="submit"
-              className="w-full bg-[#FFBF00] hover:bg-[#C69214] text-[#022851]"
+              disabled={isLoading}
+              className="w-full bg-[#FFBF00] hover:bg-[#C69214] text-[#022851] disabled:opacity-50"
             >
-              {isLogin ? 'Sign In' : 'Create Account'}
+              {isLoading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
             </Button>
+            {errorMsg && (
+    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md text-sm">
+      {errorMsg}
+    </div>
+  )}
           </form>
 
           <div className="mt-6 text-center">
