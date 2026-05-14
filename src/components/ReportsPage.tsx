@@ -1,467 +1,602 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { FileText, Download, User, Trophy, Clock, Flag, Loader2, ExternalLink } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { FileText, Download, Calendar, User, Trophy, Clock, Flag } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
-import { Label } from './ui/label';
-import { api } from '../services/api';
-import { toast } from 'sonner';
-import { ReportDialogsFromBundle } from './reports/ReportDialogsFromBundle';
-import { downloadMatchReportPdf } from '../reports/MatchReportPdf';
-import type { MatchReportBundle } from '../reports/aggregateMatchReport';
+import { useState, useEffect } from 'react';
 
-interface ApiMatch {
-  id: number;
-  opponent_team_id: number;
-  match_date: string;
-  location?: string | null;
-  uc_davis_score: number;
-  opponent_score: number;
-  status: string;
-}
 
 export default function ReportsPage() {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [showQuarterReport, setShowQuarterReport] = useState(false);
   const [showHalftimeReport, setShowHalftimeReport] = useState(false);
+  //new code
   const [showPlayerReport, setShowPlayerReport] = useState(false);
-  const [showSeasonReport, setShowSeasonReport] = useState(false);
-
-  const [dbMatches, setDbMatches] = useState<ApiMatch[]>([]);
-  const [teamNames, setTeamNames] = useState<Map<number, string>>(new Map());
-  const [reportMatchId, setReportMatchId] = useState<string>('');
-  const [selectedQuarter, setSelectedQuarter] = useState(1);
-
-  const [showDbSummary, setShowDbSummary] = useState(false);
-  const [dbSummaryLoading, setDbSummaryLoading] = useState(false);
-  const [dbSummary, setDbSummary] = useState<{
-    match: ApiMatch;
-    opponent: string;
-    playCount: number;
-    goalEvents: number;
-  } | null>(null);
-
-  const [reportBundle, setReportBundle] = useState<MatchReportBundle | null>(null);
-  const [reportPlayersById, setReportPlayersById] = useState<Map<number, string>>(new Map());
-  const [bundleLoading, setBundleLoading] = useState(false);
-
-  const [playerReportId, setPlayerReportId] = useState<string>('');
-  const [playerReportData, setPlayerReportData] = useState<{
-    averages: Awaited<ReturnType<typeof api.getPlayerAverages>>;
-    history: Awaited<ReturnType<typeof api.getPlayerMatchHistory>>;
-    name: string;
-  } | null>(null);
-  const [playerReportLoading, setPlayerReportLoading] = useState(false);
-
-  const [seasonData, setSeasonData] = useState<Awaited<ReturnType<typeof api.getSeasonSummary>> | null>(null);
-  const [seasonLoading, setSeasonLoading] = useState(false);
-
-  const loadDbMatches = useCallback(async () => {
-    try {
-      const [rows, teams] = await Promise.all([
-        api.getMatches({ limit: 80 }),
-        api.getTeams(),
-      ]);
-      const m = new Map<number, string>();
-      for (const t of teams) m.set(t.id, t.name);
-      setTeamNames(m);
-      const list = (rows as ApiMatch[]).filter(
-        (x) => x.status === 'completed' || x.status === 'in_progress',
-      );
-      setDbMatches(list);
-      setReportMatchId((prev) => prev || (list.length ? String(list[0].id) : ''));
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadDbMatches();
-  }, [loadDbMatches]);
-
-  /** Deep link from Live Stats at halftime: `/reports?matchId=…&halftime=1` */
-  useEffect(() => {
-    if (searchParams.get('halftime') !== '1') return;
-    const mid = searchParams.get('matchId');
-    if (mid && /^\d+$/.test(mid)) setReportMatchId(mid);
-    setShowHalftimeReport(true);
-    const next = new URLSearchParams(searchParams);
-    next.delete('halftime');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  useEffect(() => {
-    let cancel = false;
-    const id = Number(reportMatchId);
-    if (!Number.isFinite(id)) {
-      setReportBundle(null);
-      return;
-    }
-    setBundleLoading(true);
-    void (async () => {
-      try {
-        const [raw, players] = await Promise.all([
-          api.getMatchReportBundle(id),
-          api.getPlayers(),
-        ]);
-        if (cancel) return;
-        const pmap = new Map<number, string>();
-        for (const p of players) pmap.set(p.id, p.name);
-        setReportPlayersById(pmap);
-        setReportBundle(raw as unknown as MatchReportBundle);
-      } catch (e) {
-        if (!cancel) {
-          console.error(e);
-          setReportBundle(null);
-        }
-      } finally {
-        if (!cancel) setBundleLoading(false);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
+  const [selectedSeason, setSelectedSeason] = useState('2025');
+  const [playerStats, setPlayerStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+  // Mock data - in production, this would come from localStorage or state management
+  const mockGameData = {
+    currentQuarter: 2,
+    gameTime: 360, // 6 minutes into Q2
+    ucDavisScore: 5,
+    opponentScore: 3,
+    opponentName: 'Stanford',
+    quarterStats: {
+      Q1: {
+        ucDavisGoals: 3,
+        opponentGoals: 2,
+        ucDavisPossessionTime: 250,
+        opponentPossessionTime: 230,
+        totalShots: { ucDavis: 8, opponent: 6 },
+        topScorers: [
+          { name: 'Alex Martinez', goals: 2, shots: 3 },
+          { name: 'Jake Thompson', goals: 1, shots: 2 }
+        ],
+        refereeCalls: { yellowCards: 1, ejections: 2, penalties: 1 }
+      },
+      Q2: {
+        ucDavisGoals: 2,
+        opponentGoals: 1,
+        ucDavisPossessionTime: 180,
+        opponentPossessionTime: 180,
+        totalShots: { ucDavis: 5, opponent: 4 },
+        topScorers: [
+          { name: 'Ryan Chen', goals: 1, shots: 2 },
+          { name: 'Marcus Wilson', goals: 1, shots: 1 }
+        ],
+        refereeCalls: { yellowCards: 0, ejections: 1, penalties: 0 }
       }
-    })();
-    return () => {
-      cancel = true;
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const renderQuarterReport = () => {
+    const quarter = mockGameData.currentQuarter;
+    const qData = mockGameData.quarterStats[`Q${quarter}` as 'Q1' | 'Q2'];
+    
+    return (
+      <Dialog open={showQuarterReport} onOpenChange={setShowQuarterReport}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-[#022851]">
+              Quarter {quarter} Report - UC Davis vs {mockGameData.opponentName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Score Summary */}
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580]">
+              <div className="flex justify-between items-center text-white">
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">UC Davis</div>
+                  <div className="text-5xl font-bold text-[#FFBF00]">{qData.ucDavisGoals}</div>
+                </div>
+                <div className="text-center">
+                  <Badge className="bg-[#FFBF00] text-[#022851] text-lg px-4 py-2">Q{quarter}</Badge>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">{mockGameData.opponentName}</div>
+                  <div className="text-5xl font-bold">{qData.opponentGoals}</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Statistics Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Clock size={18} className="text-[#FFBF00]" />
+                  Possession Time
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{formatTime(qData.ucDavisPossessionTime)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{formatTime(qData.opponentPossessionTime)}</span>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Trophy size={18} className="text-[#FFBF00]" />
+                  Shots
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{qData.totalShots.ucDavis}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{qData.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Top Scorers */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3">Top Scorers (UC Davis)</h3>
+              <div className="space-y-2">
+                {qData.topScorers.map((player, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="font-medium">{player.name}</span>
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-gray-600">{player.goals} goals</span>
+                      <span className="text-gray-600">{player.shots} shots</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Referee Calls */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                <Flag size={18} className="text-[#FFBF00]" />
+                Referee Calls
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600">{qData.refereeCalls.yellowCards}</div>
+                  <div className="text-sm text-gray-600">Yellow Cards</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{qData.refereeCalls.ejections}</div>
+                  <div className="text-sm text-gray-600">Ejections</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-[#022851]">{qData.refereeCalls.penalties}</div>
+                  <div className="text-sm text-gray-600">Penalties</div>
+                </div>
+              </div>
+            </Card>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setShowQuarterReport(false)}>
+                Close
+              </Button>
+              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                <Download className="mr-2" size={16} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  const renderHalftimeReport = () => {
+    const q1Data = mockGameData.quarterStats.Q1;
+    const q2Data = mockGameData.quarterStats.Q2;
+    
+    // Combine Q1 and Q2 stats
+    const combinedStats = {
+      ucDavisGoals: q1Data.ucDavisGoals + q2Data.ucDavisGoals,
+      opponentGoals: q1Data.opponentGoals + q2Data.opponentGoals,
+      ucDavisPossessionTime: q1Data.ucDavisPossessionTime + q2Data.ucDavisPossessionTime,
+      opponentPossessionTime: q1Data.opponentPossessionTime + q2Data.opponentPossessionTime,
+      totalShots: {
+        ucDavis: q1Data.totalShots.ucDavis + q2Data.totalShots.ucDavis,
+        opponent: q1Data.totalShots.opponent + q2Data.totalShots.opponent
+      },
+      refereeCalls: {
+        yellowCards: q1Data.refereeCalls.yellowCards + q2Data.refereeCalls.yellowCards,
+        ejections: q1Data.refereeCalls.ejections + q2Data.refereeCalls.ejections,
+        penalties: q1Data.refereeCalls.penalties + q2Data.refereeCalls.penalties
+      }
     };
-  }, [reportMatchId]);
 
-  const buildDbSummary = async (overrideMatchId?: number) => {
-    const id = Number(overrideMatchId ?? reportMatchId);
-    if (!Number.isFinite(id)) {
-      toast.error('Choose a match');
-      return;
-    }
-    setDbSummaryLoading(true);
-    try {
-      const [match, plays] = await Promise.all([api.getMatch(id), api.getMatchPlays(id)]);
-      const m = match as ApiMatch;
-      const opponent = teamNames.get(m.opponent_team_id) ?? `Team #${m.opponent_team_id}`;
-      const goalEvents = plays.filter((p) => p.event_type === 'goal').length;
-      setDbSummary({ match: m, opponent, playCount: plays.length, goalEvents });
-      setShowDbSummary(true);
-    } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : 'Could not load match');
-    } finally {
-      setDbSummaryLoading(false);
-    }
-  };
+    return (
+      <Dialog open={showHalftimeReport} onOpenChange={setShowHalftimeReport}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-[#022851]">
+              Halftime Report - UC Davis vs {mockGameData.opponentName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Score Summary */}
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580]">
+              <div className="flex justify-between items-center text-white">
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">UC Davis</div>
+                  <div className="text-5xl font-bold text-[#FFBF00]">{combinedStats.ucDavisGoals}</div>
+                </div>
+                <div className="text-center">
+                  <Badge className="bg-[#FFBF00] text-[#022851] text-lg px-4 py-2">Halftime</Badge>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm opacity-80 mb-1">{mockGameData.opponentName}</div>
+                  <div className="text-5xl font-bold">{combinedStats.opponentGoals}</div>
+                </div>
+              </div>
+            </Card>
 
-  const loadPlayerReport = async () => {
-    const pid = Number(playerReportId);
-    if (!Number.isFinite(pid)) {
-      toast.error('Select a player');
-      return;
-    }
-    setPlayerReportLoading(true);
-    try {
-      const [averages, history, players] = await Promise.all([
-        api.getPlayerAverages(pid),
-        api.getPlayerMatchHistory(pid, 30),
-        api.getPlayers(),
-      ]);
-      const name = players.find((p) => p.id === pid)?.name ?? `Player #${pid}`;
-      setPlayerReportData({ averages, history, name });
-      setShowPlayerReport(true);
-    } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : 'Could not load player');
-    } finally {
-      setPlayerReportLoading(false);
-    }
-  };
+            {/* Quarter Breakdown */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4 border-2 border-[#FFBF00]">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Badge className="bg-[#FFBF00] text-[#022851]">Q1</Badge>
+                  First Quarter
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Score:</span>
+                    <span className="font-semibold text-[#022851]">{q1Data.ucDavisGoals} - {q1Data.opponentGoals}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Shots:</span>
+                    <span className="font-semibold">{q1Data.totalShots.ucDavis} - {q1Data.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
 
-  const loadSeasonReport = async () => {
-    setSeasonLoading(true);
-    try {
-      const s = await api.getSeasonSummary(1);
-      setSeasonData(s);
-      setShowSeasonReport(true);
-    } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : 'Could not load season');
-    } finally {
-      setSeasonLoading(false);
-    }
-  };
+              <Card className="p-4 border-2 border-[#022851]">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Badge className="bg-[#022851] text-white">Q2</Badge>
+                  Second Quarter
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Score:</span>
+                    <span className="font-semibold text-[#022851]">{q2Data.ucDavisGoals} - {q2Data.opponentGoals}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Shots:</span>
+                    <span className="font-semibold">{q2Data.totalShots.ucDavis} - {q2Data.totalShots.opponent}</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
 
-  const postgamePdf = () => {
-    if (!reportBundle) {
-      toast.error('Load match data first (pick a match above)');
-      return;
-    }
-    void downloadMatchReportPdf({
-      filename: `postgame-match-${reportBundle.match.id}`,
-      title: `Postgame — UC Davis vs ${reportBundle.opponent_name}`,
-      bundle: reportBundle,
-      opponentName: reportBundle.opponent_name,
-      playerNames: reportPlayersById,
-    });
+            {/* First Half Statistics */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Clock size={18} className="text-[#FFBF00]" />
+                  Total Possession Time
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis:</span>
+                    <span className="font-semibold text-[#022851]">{formatTime(combinedStats.ucDavisPossessionTime)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
+                    <span className="font-semibold">{formatTime(combinedStats.opponentPossessionTime)}</span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Possession %:</span>
+                      <span className="font-semibold text-[#FFBF00]">
+                        {Math.round((combinedStats.ucDavisPossessionTime / (combinedStats.ucDavisPossessionTime + combinedStats.opponentPossessionTime)) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-4">
+                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                  <Trophy size={18} className="text-[#FFBF00]" />
+                  Shooting Stats
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Shots:</span>
+                    <span className="font-semibold text-[#022851]">{combinedStats.totalShots.ucDavis} - {combinedStats.totalShots.opponent}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">UC Davis Accuracy:</span>
+                    <span className="font-semibold text-[#FFBF00]">
+                      {Math.round((combinedStats.ucDavisGoals / combinedStats.totalShots.ucDavis) * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">{mockGameData.opponentName} Accuracy:</span>
+                    <span className="font-semibold">
+                      {Math.round((combinedStats.opponentGoals / combinedStats.totalShots.opponent) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Combined Top Scorers */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3">First Half Top Scorers (UC Davis)</h3>
+              <div className="space-y-2">
+                {[...q1Data.topScorers, ...q2Data.topScorers].slice(0, 4).map((player, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="font-medium">{player.name}</span>
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-gray-600">{player.goals} goals</span>
+                      <span className="text-gray-600">{player.shots} shots</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* First Half Referee Calls */}
+            <Card className="p-4">
+              <h3 className="text-[#022851] mb-3 flex items-center gap-2">
+                <Flag size={18} className="text-[#FFBF00]" />
+                First Half Referee Calls
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600">{combinedStats.refereeCalls.yellowCards}</div>
+                  <div className="text-sm text-gray-600">Yellow Cards</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{combinedStats.refereeCalls.ejections}</div>
+                  <div className="text-sm text-gray-600">Ejections</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-[#022851]">{combinedStats.refereeCalls.penalties}</div>
+                  <div className="text-sm text-gray-600">Penalties</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Key Insights */}
+            <Card className="p-4 bg-[#FFBF00]/10 border-2 border-[#FFBF00]">
+              <h3 className="text-[#022851] mb-3">Key Insights</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>UC Davis leads by {combinedStats.ucDavisGoals - combinedStats.opponentGoals} goal(s) at halftime</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>UC Davis shooting accuracy: {Math.round((combinedStats.ucDavisGoals / combinedStats.totalShots.ucDavis) * 100)}%</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FFBF00] mt-1">•</span>
+                  <span>Possession advantage: UC Davis {Math.round((combinedStats.ucDavisPossessionTime / (combinedStats.ucDavisPossessionTime + combinedStats.opponentPossessionTime)) * 100)}%</span>
+                </li>
+              </ul>
+            </Card>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setShowHalftimeReport(false)}>
+                Close
+              </Button>
+              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                <Download className="mr-2" size={16} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
   };
+useEffect(() => {
+  fetch('http://localhost:8000/api/players?team_id=1')
+    .then(res => res.json())
+    .then(data => setPlayers(data))
+    .catch(err => console.error('Failed to fetch players:', err));
+}, []);
+
+const fetchPlayerStats = async (playerId: number) => {
+  setLoadingStats(true);
+  try {
+    const res = await fetch(`http://localhost:8000/api/players/${playerId}/averages`);
+    const data = await res.json();
+    setPlayerStats(data);
+  } catch (err) {
+    console.error('Failed to fetch player stats:', err);
+  }
+  setLoadingStats(false);
+};
+
+const renderPlayerSeasonReport = () => (
+  <Dialog open={showPlayerReport} onOpenChange={setShowPlayerReport}>
+    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="text-2xl text-[#022851]">
+          Player Season Performance Report
+        </DialogTitle>
+      </DialogHeader>
+
+      <div className="space-y-6">
+        {/* Controls */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Player</label>
+            <select
+              className="w-full border border-gray-300 rounded-md p-2 text-sm"
+              onChange={e => {
+                const player = players.find(p => p.id === parseInt(e.target.value));
+                setSelectedPlayer(player);
+                setPlayerStats(null);
+                if (player) fetchPlayerStats(player.id);
+              }}
+            >
+              <option value="">-- Choose a player --</option>
+              {players.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Season</label>
+            <select
+              className="w-full border border-gray-300 rounded-md p-2 text-sm"
+              value={selectedSeason}
+              onChange={e => setSelectedSeason(e.target.value)}
+            >
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+              <option value="2023">2023</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Stats Display */}
+        {loadingStats && <p className="text-center text-gray-500">Loading stats...</p>}
+
+        {selectedPlayer && playerStats && !loadingStats && (
+          <>
+            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580] text-white">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-[#FFBF00] mb-1">{selectedPlayer.name}</div>
+                <div className="text-gray-300">Season {selectedSeason} Performance</div>
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-3 gap-4">
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_goals ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Goals</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_assists ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Assists</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_steals ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Steals</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.total_shots ?? 0}</div>
+                <div className="text-sm text-gray-600">Total Shots</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.avg_goals ?? 0}</div>
+                <div className="text-sm text-gray-600">Avg Goals/Game</div>
+              </Card>
+              <Card className="p-4 text-center">
+                <div className="text-3xl font-bold text-[#022851]">{playerStats.games_played ?? 0}</div>
+                <div className="text-sm text-gray-600">Games Played</div>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {selectedPlayer && !playerStats && !loadingStats && (
+          <p className="text-center text-gray-500">No stats found for this player.</p>
+        )}
+
+        <div className="flex gap-3 justify-end">
+          <Button variant="outline" onClick={() => setShowPlayerReport(false)}>Close</Button>
+          <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+            <Download className="mr-2" size={16} />
+            Download PDF
+          </Button>
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>
+);
+  const availableReports = [
+    {
+      id: 1,
+      type: 'Match Report',
+      title: 'Stanford vs UC Davis',
+      date: 'Oct 24, 2025',
+      status: 'Ready',
+      icon: Trophy,
+    },
+    {
+      id: 2,
+      type: 'Player Report',
+      title: 'Marcus Silva - Monthly Analysis',
+      date: 'Oct 2025',
+      status: 'Ready',
+      icon: User,
+    },
+    {
+      id: 3,
+      type: 'Season Report',
+      title: 'Season 2025 Overview',
+      date: '2025',
+      status: 'Ready',
+      icon: Calendar,
+    },
+  ];
 
   const reportTemplates = [
     {
       id: 1,
-      name: 'Match / postgame PDF',
-      description: 'Full match totals and player box scores',
+      name: 'Match Performance Report',
+      description: 'Comprehensive analysis of a single match including stats and player ratings',
       icon: Trophy,
-      action: () => postgamePdf(),
     },
     {
       id: 2,
-      name: 'Player analytics',
-      description: 'Career averages and recent games',
+      name: 'Player Development Report',
+      description: 'Individual player progress tracking over selected time period',
       icon: User,
-      action: () => void loadPlayerReport(),
     },
     {
       id: 3,
-      name: 'Quarter report',
-      description: 'Per-quarter goals, shots, possession, and referee calls',
-      icon: Clock,
-      action: () => setShowQuarterReport(true),
+      name: 'Team Analytics Report',
+      description: 'Team-wide statistics and performance metrics',
+      icon: FileText,
     },
     {
       id: 4,
-      name: 'Halftime report',
-      description: 'First half (Q1+Q2) summary',
+      name: 'Season Summary Report',
+      description: 'Complete season overview with trends and highlights',
+      icon: Calendar,
+    },
+    {
+      id: 5,
+      name: 'Quarter Report',
+      description: 'Real-time report for the current quarter based on live stats data',
+      icon: Clock,
+      action: () => setShowQuarterReport(true),
+      highlight: true
+    },
+    {
+      id: 6,
+      name: 'Halftime Report',
+      description: 'Comprehensive first-half analysis combining Q1 and Q2 statistics',
       icon: Flag,
       action: () => setShowHalftimeReport(true),
+      highlight: true
     },
+    
   ];
-
-  const [ucdPlayerOptions, setUcdPlayerOptions] = useState<{ id: number; name: string }[]>([]);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const rows = await api.getPlayers({ team_id: 1, is_active: true });
-        setUcdPlayerOptions(rows.map((p) => ({ id: p.id, name: p.name })));
-        setPlayerReportId((prev) => prev || (rows[0] ? String(rows[0].id) : ''));
-      } catch {
-        setUcdPlayerOptions([]);
-      }
-    })();
-  }, []);
 
   return (
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
-      <ReportDialogsFromBundle
-        bundle={reportBundle}
-        playersById={reportPlayersById}
-        quarter={selectedQuarter}
-        onQuarterChange={setSelectedQuarter}
-        showQuarter={showQuarterReport}
-        setShowQuarter={setShowQuarterReport}
-        showHalftime={showHalftimeReport}
-        setShowHalftime={setShowHalftimeReport}
-      />
+      {renderQuarterReport()}
+      {renderHalftimeReport()}
+      {renderPlayerSeasonReport()}
 
-      <Dialog open={showPlayerReport} onOpenChange={setShowPlayerReport}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-[#022851]">Player report — {playerReportData?.name}</DialogTitle>
-          </DialogHeader>
-          {playerReportData ? (
-            <div className="space-y-3 text-sm">
-              <p>
-                Games: {playerReportData.averages.games_played} · Shot %:{' '}
-                {playerReportData.averages.shot_percentage}%
-              </p>
-              <p>
-                Avg goals {playerReportData.averages.avg_goals} · Avg shots {playerReportData.averages.avg_shots} ·
-                Avg assists {playerReportData.averages.avg_assists}
-              </p>
-              <h4 className="font-semibold text-[#022851] mt-4">Recent games</h4>
-              <ul className="space-y-1 max-h-48 overflow-y-auto">
-                {playerReportData.history.map((h) => (
-                  <li key={h.match_id} className="flex justify-between border-b border-gray-100 py-1">
-                    <span>{new Date(h.match_date).toLocaleDateString()} vs {h.opponent_name}</span>
-                    <span>
-                      {h.goals}G / {h.shots}S
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <Button className="bg-[#022851] text-white w-full mt-2" type="button" onClick={() => window.print()}>
-                Print report
-              </Button>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showSeasonReport} onOpenChange={setShowSeasonReport}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-[#022851]">Season summary</DialogTitle>
-          </DialogHeader>
-          {seasonData ? (
-            <div className="text-sm space-y-2">
-              <p className="font-semibold">{seasonData.team.name}</p>
-              <p>Completed home matches: {seasonData.completed_home_matches}</p>
-              <p>Active players: {seasonData.active_players.length}</p>
-              <Button className="bg-[#022851] text-white mt-2" type="button" onClick={() => window.print()}>
-                Print
-              </Button>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
       
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>
-        {bundleLoading ? (
-          <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-            <Loader2 className="h-3 w-3 animate-spin" /> Syncing report bundle…
-          </p>
-        ) : null}
+        <p className="text-gray-600">Generate and download comprehensive performance reports</p>
       </div>
 
-      <Dialog open={showDbSummary} onOpenChange={setShowDbSummary}>
-        <DialogContent className="max-w-lg" id="db-match-summary-print">
-          <DialogHeader>
-            <DialogTitle className="text-[#022851]">Match summary</DialogTitle>
-          </DialogHeader>
-          {dbSummary ? (
-            <div className="space-y-4 text-sm">
-              <p className="text-lg font-semibold text-[#022851]">UC Davis vs {dbSummary.opponent}</p>
-              <p className="text-gray-600">
-                {new Date(dbSummary.match.match_date).toLocaleString()} · {dbSummary.match.location ?? '—'}
-              </p>
-              <p>
-                <span className="text-gray-600">Status:</span>{' '}
-                <Badge variant="outline" className="capitalize">
-                  {dbSummary.match.status}
-                </Badge>
-              </p>
-              <Card className="p-4 bg-[#022851] text-white">
-                <p className="text-center text-sm opacity-90">Score</p>
-                <p className="text-center text-4xl font-bold text-[#FFBF00]">
-                  {dbSummary.match.uc_davis_score} – {dbSummary.match.opponent_score}
-                </p>
-              </Card>
-              <div className="grid grid-cols-2 gap-3">
-                <Card className="p-3">
-                  <p className="text-gray-500 text-xs">Play-by-play rows</p>
-                  <p className="text-xl font-semibold text-[#022851]">{dbSummary.playCount}</p>
-                </Card>
-                <Card className="p-3">
-                  <p className="text-gray-500 text-xs">Goal events</p>
-                  <p className="text-xl font-semibold text-[#022851]">{dbSummary.goalEvents}</p>
-                </Card>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-end">
-                <Button variant="outline" onClick={() => navigate(`/matches/${dbSummary.match.id}`)}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Match page
-                </Button>
-                <Button className="bg-[#022851] text-white" type="button" onClick={() => window.print()}>
-                  Print
-                </Button>
-                <Button
-                  className="bg-[#FFBF00] text-[#022851]"
-                  type="button"
-                  onClick={() => {
-                    if (!reportBundle || reportBundle.match.id !== dbSummary.match.id) {
-                      toast.error('Wait for report data to finish loading for this match');
-                      return;
-                    }
-                    void downloadMatchReportPdf({
-                      filename: `match-${dbSummary.match.id}-summary`,
-                      title: `Match summary — UC Davis vs ${dbSummary.opponent}`,
-                      bundle: reportBundle,
-                      opponentName: dbSummary.opponent,
-                      playerNames: reportPlayersById,
-                    });
-                  }}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  PDF
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
-        <h2 className="text-[#022851] mb-4">Match</h2>
-        {dbMatches.length === 0 ? (
-          <p className="text-gray-500 text-sm">No matches yet — log a game on Live Stats.</p>
-        ) : (
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="report-match">Match</Label>
-              <select
-                id="report-match"
-                className="w-full border rounded-md h-10 px-3 text-sm bg-white"
-                value={reportMatchId}
-                onChange={(e) => setReportMatchId(e.target.value)}
-              >
-                {dbMatches.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    #{m.id} vs {teamNames.get(m.opponent_team_id) ?? 'Opponent'} —{' '}
-                    {new Date(m.match_date).toLocaleDateString()} ({m.status})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button
-              type="button"
-              className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]"
-              disabled={dbSummaryLoading}
-              onClick={() => void buildDbSummary()}
-            >
-              {dbSummaryLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Quick summary
-            </Button>
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
-        <h2 className="text-[#022851] mb-2">Player for analytics report</h2>
-        <div className="flex flex-col sm:flex-row gap-4 sm:items-end">
-          <div className="flex-1 space-y-2">
-            <Label>UC Davis player</Label>
-            <select
-              className="w-full border rounded-md h-10 px-3 text-sm bg-white"
-              value={playerReportId}
-              onChange={(e) => setPlayerReportId(e.target.value)}
-            >
-              {ucdPlayerOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button
-            type="button"
-            className="bg-[#022851] text-white"
-            disabled={playerReportLoading}
-            onClick={() => void loadPlayerReport()}
-          >
-            {playerReportLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Open player report
-          </Button>
-        </div>
-      </Card>
-
+      {/* Generate Report Section */}
       <Card className="p-8 bg-gradient-to-br from-[#022851] to-[#034580] text-white rounded-xl shadow-lg mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-white mb-2">Season overview</h2>
-            <p className="text-gray-300 mb-6">Roster snapshot from the API</p>
-            <Button
-              className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]"
-              type="button"
-              disabled={seasonLoading}
-              onClick={() => void loadSeasonReport()}
-            >
-              {seasonLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Open season summary
+            <h2 className="text-white mb-2">Generate New Report</h2>
+            <p className="text-gray-300 mb-6">Create custom reports based on your analytics needs</p>
+            <Button className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]">
+              <FileText className="mr-2" size={16} />
+              Create Report
             </Button>
           </div>
           <div className="hidden lg:block">
@@ -472,16 +607,55 @@ export default function ReportsPage() {
         </div>
       </Card>
 
+      {/* Recent Reports */}
+      <div className="mb-8">
+        <h2 className="text-[#022851] mb-4">Recent Reports</h2>
+        <div className="grid gap-4">
+          {availableReports.map((report) => {
+            const Icon = report.icon;
+            return (
+              <Card key={report.id} className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-[#FFBF00]/10 rounded-lg flex items-center justify-center">
+                      <Icon className="text-[#FFBF00]" size={28} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-3 mb-1">
+                        <h3 className="text-[#022851]">{report.title}</h3>
+                        <span className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs">
+                          {report.status}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 text-sm">{report.type} • {report.date}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button variant="outline" className="border-gray-300">
+                      <FileText className="mr-2" size={16} />
+                      View
+                    </Button>
+                    <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                      <Download className="mr-2" size={16} />
+                      Download PDF
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Report Templates */}
       <div>
-        <h2 className="text-[#022851] mb-4">Report templates</h2>
+        <h2 className="text-[#022851] mb-4">Report Templates</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {reportTemplates.map((template) => {
             const Icon = template.icon;
             return (
-              <Card
-                key={template.id}
-                className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:border-[#FFBF00] transition-all"
-              >
+              <Card key={template.id} className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:border-[#FFBF00] transition-all cursor-pointer">
                 <div className="flex items-start gap-4">
                   <div className="w-14 h-14 bg-[#FFBF00]/10 rounded-lg flex items-center justify-center flex-shrink-0">
                     <Icon className="text-[#FFBF00]" size={24} />
@@ -489,14 +663,15 @@ export default function ReportsPage() {
                   <div className="flex-1">
                     <h3 className="text-[#022851] mb-2">{template.name}</h3>
                     <p className="text-gray-600 text-sm mb-4">{template.description}</p>
-                    <Button
-                      size="sm"
-                      className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]"
-                      type="button"
-                      onClick={template.action}
-                    >
-                      Generate
+                    {template.action ? (
+                      <Button size="sm" className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]" onClick={template.action}>
+                        Generate Report
                       </Button>
+                    ) : (
+                      <Button size="sm" className="bg-[#FFBF00] hover:bg-[#E6AC00] text-[#022851]">
+                        Generate Report
+                      </Button>
+                    )}
                   </div>
                 </div>
               </Card>
