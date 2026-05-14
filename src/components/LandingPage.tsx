@@ -1,11 +1,20 @@
 import { Button } from './ui/button';
 import { BarChart3, TrendingUp, Users, Award } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import { supabaseBrowser } from '../lib/supabaseBrowser';
 
 interface LandingPageProps {
   onNavigate: (page: string) => void;
 }
 
 export default function LandingPage({ onNavigate }: LandingPageProps) {
+  const { user, loading } = useAuth();
+
+  const goApp = () => {
+    if (loading) return;
+    if (supabaseBrowser && !user) onNavigate('login');
+    else onNavigate('dashboard');
+  };
   const features = [
     {
       icon: BarChart3,
@@ -72,17 +81,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               <Button
                 size="lg"
                 className="bg-[#FFBF00] hover:bg-[#C69214] text-[#022851] px-8"
-                onClick={() => onNavigate('dashboard')}
+                onClick={goApp}
               >
                 Start Analyzing
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-white/20 text-white hover:bg-white/10"
-                onClick={() => onNavigate('dashboard')}
-              >
-                View Demo
               </Button>
             </div>
           </div>
@@ -90,7 +91,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           <div className="relative">
             <div className="absolute inset-0 bg-[#FFBF00]/20 rounded-2xl blur-3xl"></div>
             <img
-              src="https://images.unsplash.com/photo-1709789945357-de0712eb4d72?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3YXRlciUyMHBvbG8lMjBtYXRjaCUyMGFjdGlvbnxlbnwxfHx8fDE3NjQ5NzQ1ODd8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+              src="/team/hero.svg"
               alt="Water Polo Analytics"
               className="relative rounded-2xl shadow-2xl w-full"
             />
@@ -121,23 +122,6 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               </div>
             );
           })}
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="max-w-7xl mx-auto px-6 py-20">
-        <div className="bg-gradient-to-r from-[#FFBF00] to-[#C69214] rounded-2xl p-12 text-center">
-          <h2 className="text-3xl text-[#022851] mb-4">Ready to Elevate Your Game?</h2>
-          <p className="text-[#022851]/90 text-lg mb-8">
-            Join the UC Davis coaching staff using advanced analytics for data-driven insights
-          </p>
-          <Button
-            size="lg"
-            className="bg-white text-[#022851] hover:bg-gray-100 px-8"
-            onClick={() => onNavigate('dashboard')}
-          >
-            Get Started Now
-          </Button>
         </div>
       </section>
 

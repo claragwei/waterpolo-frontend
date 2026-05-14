@@ -21,6 +21,7 @@ class Player(BaseModel):
     jersey_number = IntegerField()
     position = CharField(null=True)        # 'field' | 'goalie'
     is_active = BooleanField(default=True)
+    photo_url = CharField(null=True, max_length=512)
     # Denormalized career totals — updated after every match stat upsert
     total_goals = IntegerField(default=0)
     total_assists = IntegerField(default=0)
@@ -118,10 +119,26 @@ class PlayerNote(BaseModel):
     created_at = DateTimeField(default=datetime.now)
 
 
+class MatchVideoSync(BaseModel):
+    match = ForeignKeyField(Match, backref='video_sync')
+    quarter = IntegerField(default=1)
+    video_url = TextField()
+    video_offset_sec = IntegerField(default=0)
+    created_at = DateTimeField(default=datetime.now)
+    updated_at = DateTimeField(default=datetime.now)
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.now()
+        return super().save(*args, **kwargs)
+
+    class Meta:
+        indexes = ((('match', 'quarter'), True),)
+
+
 def create_tables():
     with db:
         db.create_tables(
             [Team, Player, Match, PlayerMatchStats,
-             PlayByPlay, RefereeCall, Possession, PlayerNote],
+             PlayByPlay, RefereeCall, Possession, PlayerNote, MatchVideoSync],
             safe=True,
         )

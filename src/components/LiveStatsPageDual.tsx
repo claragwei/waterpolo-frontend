@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { usePossessionViewModel } from '../hooks/usePossessionViewModel';
 import { toast } from 'sonner@2.0.3';
 
 import type {
@@ -23,10 +25,12 @@ import TeamSituations from './TeamSituations';
 import RefereePanel from './RefereePanel';
 import PossessionTimeline from './PossessionTimeline';
 import StatsTable from './StatsTable';
+import FilmReviewPanel from './FilmReviewPanel';
 import PlayerEditModal from './PlayerEditModal';
 import HeatmapModal from './HeatmapModal';
 import RefereeCallModal from './RefereeCallModal';
 import SubstitutionModal from './SubstitutionModal';
+import ReplayRollbackPanel from './ReplayRollbackPanel';
 
 // ---------------------------------------------------------------------------
 // Initial rosters
@@ -58,11 +62,29 @@ const initialOpponentPlayers: PlayerStat[] = [
   { playerId: 110, playerName: 'Opponent #10', jerseyNumber: 10, shots: 0, goals: 0, penalties: 0, turnovers: 0, rebounds: 0, assists: 0, blocks: 0, tippedPasses: 0, sprints: 0, steals: 0, hustle: 0, exclusions: 0, draws: 0, isActive: false, notes: [] },
 ];
 
+const QUARTER_DURATION_SECONDS = 8 * 60;
+const SHOT_CLOCK_SECONDS = 30;
+
+type ReplayEventType = 'goal' | 'exclusion' | 'penalty-foul' | 'timeout' | 'ejection' | 'referee-call';
+
+interface ReplayEvent {
+  id: string;
+  type: ReplayEventType;
+  gameTime: number;
+  quarter: number;
+  team?: 'ucDavis' | 'opponent';
+  playerId?: number;
+  playerName?: string;
+  callType?: string;
+  refereeCallId?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function LiveStatsPage() {
+  const navigate = useNavigate();
   // ---- Match / game state ----
   const [matchId, setMatchId] = useState<number | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
@@ -71,6 +93,8 @@ export default function LiveStatsPage() {
   const [currentQuarter, setCurrentQuarter] = useState(1);
   const [isInBreak, setIsInBreak] = useState(false);
   const [breakTimeRemaining, setBreakTimeRemaining] = useState(0);
+  const [shotClock, setShotClock] = useState<number | null>(null);
+  const previousQuarterRef = useRef<number | null>(null);
 
   // ---- Player / team stats ----
   const [ucDavisPlayerStats, setUcDavisPlayerStats] = useState<PlayerStat[]>(initialUcDavisPlayers);
@@ -87,6 +111,16 @@ export default function LiveStatsPage() {
   const [isPossessionActive, setIsPossessionActive] = useState(false);
   const [currentPossessionStart, setCurrentPossessionStart] = useState(0);
   const [possessionTimeline, setPossessionTimeline] = useState<PossessionEvent[]>([]);
+  // activeStatsTeam: which team's stat panel is active (decoupled from possession timer)
+  const [activeStatsTeam, setActiveStatsTeam] = useState<'ucDavis' | 'opponent'>('ucDavis');
+  // opponent team DB id, resolved on game start
+  const [oppTeamId, setOppTeamId] = useState<number | null>(null);
+  const { startPossession: dbStartPossession, endPossession: dbEndPossession } = usePossessionViewModel();
+  const possessionStartMsRef = useRef<number | null>(null);
+  const possessionBaseSecondsRef = useRef<{ ucDavis: number; opponent: number }>({
+    ucDavis: 0,
+    opponent: 0,
+  });
 
   // ---- Ejections ----
   const [activeEjections, setActiveEjections] = useState<ActiveEjection[]>([]);
@@ -121,14 +155,21 @@ export default function LiveStatsPage() {
   const [pendingRefereeCall, setPendingRefereeCall] = useState<RefereeCall['type'] | null>(null);
   const [refereeCallCounts, setRefereeCallCounts] = useState<Record<RefereeCall['type'], number>>({
     'yellow-card': 0, 'red-card': 0, ejection: 0,
-    'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
+    'minor-foul': 0, 'major-foul': 0, simulation: 0, 'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
+  });
+  const [suspendedPlayerIds, setSuspendedPlayerIds] = useState<number[]>([]);
+  const [noSubUntilGameTime, setNoSubUntilGameTime] = useState<{ ucDavis: number; opponent: number }>({
+    ucDavis: 0,
+    opponent: 0,
   });
 
   // ---- Notes ----
   const [currentNote, setCurrentNote] = useState('');
+  const [activePanel, setActivePanel] = useState<'players' | 'match' | 'analytics'>('players');
 
   // ---- Plays ----
   const [plays, setPlays] = useState<Play[]>([]);
+  const [replayEvents, setReplayEvents] = useState<ReplayEvent[]>([]);
 
   // ---- Undo/Redo ----
   const [history, setHistory] = useState<HistoryState[]>([]);
@@ -138,8 +179,10 @@ export default function LiveStatsPage() {
   // Derived values
   // ---------------------------------------------------------------------------
 
-  const activePlayerStats = currentPossession === 'opponent' ? opponentPlayerStats : ucDavisPlayerStats;
-  const activeTeamName = currentPossession === 'opponent' ? opponentTeamName : 'UC Davis';
+  const activePlayerStats = activeStatsTeam === 'opponent' ? opponentPlayerStats : ucDavisPlayerStats;
+  const selectedPlayerExistsInActiveTeam =
+    selectedPlayer !== null && activePlayerStats.some((p) => p.playerId === selectedPlayer);
+  const activeTeamName = activeStatsTeam === 'opponent' ? opponentTeamName : 'UC Davis';
   const ucDavisScore = ucDavisPlayerStats.reduce((sum, p) => sum + p.goals, 0);
   const opponentScore = opponentPlayerStats.reduce((sum, p) => sum + p.goals, 0);
   const canUndo = historyIndex > 0;
@@ -197,7 +240,7 @@ export default function LiveStatsPage() {
       setRefereeCalls(JSON.parse(JSON.stringify(prev.refereeCalls)));
       const counts = {
         'yellow-card': 0, 'red-card': 0, ejection: 0,
-        'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
+        'minor-foul': 0, 'major-foul': 0, simulation: 0, 'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
       } as Record<RefereeCall['type'], number>;
       prev.refereeCalls.forEach((c: RefereeCall) => counts[c.type]++);
       setRefereeCallCounts(counts);
@@ -218,7 +261,7 @@ export default function LiveStatsPage() {
       setRefereeCalls(JSON.parse(JSON.stringify(next.refereeCalls)));
       const counts = {
         'yellow-card': 0, 'red-card': 0, ejection: 0,
-        'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
+        'minor-foul': 0, 'major-foul': 0, simulation: 0, 'offensive-foul': 0, 'defensive-foul': 0, brutality: 0, timeout: 0,
       } as Record<RefereeCall['type'], number>;
       next.refereeCalls.forEach((c: RefereeCall) => counts[c.type]++);
       setRefereeCallCounts(counts);
@@ -248,6 +291,13 @@ export default function LiveStatsPage() {
     }
   }, []);
 
+  // Guard against stale selected player state causing an empty blocking overlay.
+  useEffect(() => {
+    if (selectedPlayer !== null && !selectedPlayerExistsInActiveTeam) {
+      setSelectedPlayer(null);
+    }
+  }, [selectedPlayer, selectedPlayerExistsInActiveTeam]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -269,7 +319,7 @@ export default function LiveStatsPage() {
 
   // Quarter end → break
   useEffect(() => {
-    if (gameTime === 480 && isGameActive && !isInBreak && currentQuarter < 4) {
+    if (gameTime === QUARTER_DURATION_SECONDS && isGameActive && !isInBreak && currentQuarter < 4) {
       let breakDuration = 0;
       let breakMessage = '';
       if (currentQuarter === 1) { breakDuration = 120; breakMessage = 'Quarter 1 complete! 2-minute break before Quarter 2'; }
@@ -281,6 +331,25 @@ export default function LiveStatsPage() {
       toast.info(breakMessage, { duration: 5000 });
     }
   }, [gameTime, isGameActive, isInBreak, currentQuarter]);
+
+  // Q2 → Q3: prompt to open halftime report on Reports (not auto-PDF)
+  useEffect(() => {
+    if (previousQuarterRef.current === null) {
+      previousQuarterRef.current = currentQuarter;
+      return;
+    }
+    const prev = previousQuarterRef.current;
+    if (prev === 2 && currentQuarter === 3) {
+      const path =
+        matchId != null ? `/reports?matchId=${matchId}&halftime=1` : '/reports?halftime=1';
+      toast.message('Halftime — generate the Q1+Q2 report?', {
+        description: 'Opens Reports with the halftime view for this match.',
+        action: { label: 'Open Reports', onClick: () => navigate(path) },
+        duration: 14_000,
+      });
+    }
+    previousQuarterRef.current = currentQuarter;
+  }, [currentQuarter, matchId, navigate]);
 
   // Break countdown
   useEffect(() => {
@@ -304,20 +373,128 @@ export default function LiveStatsPage() {
     return () => { if (breakInterval) clearInterval(breakInterval); };
   }, [isInBreak, breakTimeRemaining, currentQuarter, ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, heatmapData, refereeCalls]);
 
-  // Possession timer
+  // Shot clock
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (isPossessionActive && currentPossession && isGameActive && !isPaused && !isInBreak) {
-      interval = setInterval(() => {
-        setTeamStats((prev) => ({
-          ...prev,
-          [currentPossession === 'ucDavis' ? 'possessionTimeUCDavis' : 'possessionTimeOpponent']:
-            prev[currentPossession === 'ucDavis' ? 'possessionTimeUCDavis' : 'possessionTimeOpponent'] + 1,
-        }));
-      }, 1000);
+    if (
+      shotClock === null ||
+      !isGameActive ||
+      isPaused ||
+      isInBreak ||
+      !isPossessionActive ||
+      !currentPossession
+    ) {
+      return;
     }
-    return () => { if (interval) clearInterval(interval); };
+    const interval = setInterval(() => {
+      setShotClock((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          const fromTeam = currentPossession;
+          toast.warning('Shot clock violation - possession changes');
+          setIsPossessionActive(false);
+          setTimeout(() => switchPossession(fromTeam), 0);
+          return SHOT_CLOCK_SECONDS;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [shotClock, isGameActive, isPaused, isInBreak, isPossessionActive, currentPossession]);
+
+  // Possession timer
+  const captureCurrentPossessionSeconds = useCallback(() => {
+    if (!currentPossession) return null;
+    const base = possessionBaseSecondsRef.current[currentPossession];
+    const elapsed = possessionStartMsRef.current === null
+      ? 0
+      : Math.floor((Date.now() - possessionStartMsRef.current) / 1000);
+    const total = base + elapsed;
+    possessionBaseSecondsRef.current[currentPossession] = total;
+    possessionStartMsRef.current = null;
+    return { team: currentPossession, seconds: total };
+  }, [currentPossession]);
+
+  const getPossessionSeconds = useCallback((team: 'ucDavis' | 'opponent') => {
+    const base = possessionBaseSecondsRef.current[team];
+    if (
+      isPossessionActive &&
+      currentPossession === team &&
+      isGameActive &&
+      !isPaused &&
+      !isInBreak &&
+      possessionStartMsRef.current !== null
+    ) {
+      return base + Math.floor((Date.now() - possessionStartMsRef.current) / 1000);
+    }
+    return base;
   }, [isPossessionActive, currentPossession, isGameActive, isPaused, isInBreak]);
+
+  const startPossession = useCallback((team: 'ucDavis' | 'opponent', clearSelection: boolean = true) => {
+    // Reset per-possession clock whenever a new possession starts.
+    possessionBaseSecondsRef.current[team] = 0;
+    possessionStartMsRef.current = Date.now();
+    setCurrentPossession(team);
+    // Track possession start using game clock time for timeline/event duration math.
+    setCurrentPossessionStart(gameTime);
+    setIsPossessionActive(true);
+    const remainingInPeriod = Math.max(0, QUARTER_DURATION_SECONDS - gameTime);
+    setShotClock(remainingInPeriod < SHOT_CLOCK_SECONDS ? null : SHOT_CLOCK_SECONDS);
+    if (clearSelection) setSelectedPlayer(null);
+  }, [gameTime]);
+
+  const stopPossession = useCallback(() => {
+    const captured = captureCurrentPossessionSeconds();
+    if (captured) {
+      const key = captured.team === 'ucDavis' ? 'possessionTimeUCDavis' : 'possessionTimeOpponent';
+      setTeamStats((prev) => (prev[key] === captured.seconds ? prev : { ...prev, [key]: captured.seconds }));
+    }
+    setIsPossessionActive(false);
+    setShotClock((prev) => (prev === null ? null : prev));
+    setSelectedPlayer(null);
+  }, [captureCurrentPossessionSeconds]);
+
+  useEffect(() => {
+    if (
+      !isPossessionActive ||
+      !currentPossession ||
+      !isGameActive ||
+      isPaused ||
+      isInBreak
+    ) {
+      const captured = captureCurrentPossessionSeconds();
+      if (captured) {
+        const key = captured.team === 'ucDavis' ? 'possessionTimeUCDavis' : 'possessionTimeOpponent';
+        setTeamStats((prev) => (prev[key] === captured.seconds ? prev : { ...prev, [key]: captured.seconds }));
+      }
+      return;
+    }
+
+    if (possessionStartMsRef.current === null) {
+      possessionStartMsRef.current = Date.now();
+    }
+
+    const key = currentPossession === 'ucDavis' ? 'possessionTimeUCDavis' : 'possessionTimeOpponent';
+    const interval = setInterval(() => {
+      const liveSeconds = getPossessionSeconds(currentPossession);
+      setTeamStats((prev) => (prev[key] === liveSeconds ? prev : { ...prev, [key]: liveSeconds }));
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [
+    isPossessionActive,
+    currentPossession,
+    isGameActive,
+    isPaused,
+    isInBreak,
+    captureCurrentPossessionSeconds,
+    getPossessionSeconds,
+  ]);
+
+  useEffect(() => {
+    if (possessionStartMsRef.current !== null) return;
+    possessionBaseSecondsRef.current.ucDavis = teamStats.possessionTimeUCDavis;
+    possessionBaseSecondsRef.current.opponent = teamStats.possessionTimeOpponent;
+  }, [teamStats.possessionTimeUCDavis, teamStats.possessionTimeOpponent]);
 
   // Ejection countdown
   useEffect(() => {
@@ -381,11 +558,13 @@ export default function LiveStatsPage() {
         opponent_team_id: opponentTeamId,
         match_date: new Date().toISOString(),
         location: 'UC Davis Aquatic Center',
+        status: 'in_progress',
       });
 
       setUcDavisPlayerStats(resolvedUcd);
       setOpponentPlayerStats(resolvedOpp);
       setMatchId(match.id);
+      setOppTeamId(opponentTeamId);
       setIsGameActive(true);
       setIsPaused(false);
       toast.success('Game started! Go Aggies!');
@@ -398,6 +577,12 @@ export default function LiveStatsPage() {
   };
 
   const handlePauseGame = () => {
+    if (!isPaused && isPossessionActive && currentPossession) {
+      // Possession ends when the game is paused
+      const duration = Math.max(0, gameTime - currentPossessionStart);
+      if (matchId) dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: null });
+      setIsPossessionActive(false);
+    }
     setIsPaused(!isPaused);
     toast.info(isPaused ? 'Game resumed' : 'Game paused');
   };
@@ -409,13 +594,19 @@ export default function LiveStatsPage() {
     setCurrentQuarter(1);
     setIsInBreak(false);
     setBreakTimeRemaining(0);
+    setShotClock(null);
     setUcDavisPlayerStats(initialUcDavisPlayers);
     setOpponentPlayerStats(initialOpponentPlayers);
     setTeamStats({ FCO: 0, FCD: 0, CAO: 0, CAD: 0, AG: 0, AGD: 0, sixOnFive: 0, fiveOnSix: 0, sevenOnSix: 0, sixOnSeven: 0, possessionTimeUCDavis: 0, possessionTimeOpponent: 0 });
+    possessionStartMsRef.current = null;
+    possessionBaseSecondsRef.current = { ucDavis: 0, opponent: 0 };
     setPlays([]);
+    setReplayEvents([]);
     setHistory([]);
     setHistoryIndex(-1);
     setHeatmapData({ ucDavis: [], opponent: [] });
+    setSuspendedPlayerIds([]);
+    setNoSubUntilGameTime({ ucDavis: 0, opponent: 0 });
     toast.success('Game stats reset');
   };
 
@@ -440,6 +631,12 @@ export default function LiveStatsPage() {
   };
 
   const handleEndGame = async () => {
+    // Stop possession timer immediately to prevent drift during async ops
+    if (isPossessionActive && currentPossession && matchId) {
+      const duration = Math.max(0, gameTime - currentPossessionStart);
+      dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Period End' });
+    }
+    setIsPossessionActive(false);
     if (!matchId) { handleResetGame(); return; }
     try {
       const allPlayers = [...ucDavisPlayerStats, ...opponentPlayerStats];
@@ -474,7 +671,7 @@ export default function LiveStatsPage() {
     stat: keyof PlayerStat,
     increment: number = 1,
   ) => {
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    const team = activeStatsTeam;
     if (team === 'opponent') {
       const newStats = opponentPlayerStats.map((p) =>
         p.playerId === playerId
@@ -527,25 +724,28 @@ export default function LiveStatsPage() {
     toast.success(`Quarter ${nextQ} starting early!`, { duration: 3000 });
   };
 
-  // Possession change helper (used by turnover, steal, goal)
-  const switchPossession = (fromTeam: 'ucDavis' | 'opponent') => {
+  // Possession change helper — fromTeam is the team LOSING possession.
+  const switchPossession = (fromTeam: 'ucDavis' | 'opponent', startReason: string | null = 'Turnover') => {
+    stopPossession();
     const newPossession = fromTeam === 'ucDavis' ? 'opponent' : 'ucDavis';
-    setCurrentPossession(newPossession);
-    setCurrentPossessionStart(
-      newPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent,
-    );
-    setIsPossessionActive(true);
-    setSelectedPlayer(null);
+    startPossession(newPossession);
+    setActiveStatsTeam(newPossession);
     if (activeEjections.length > 0) {
       activeEjections.forEach((ej) => toast.info(`${ej.playerName} ejection ended (possession change)`));
       setActiveEjections([]);
+    }
+    if (matchId) {
+      const newTeamId = newPossession === 'ucDavis' ? 1 : oppTeamId;
+      if (newTeamId) {
+        dbStartPossession({ matchId, teamId: newTeamId, quarter: currentQuarter, startTimeSeconds: gameTime, startReason });
+      }
     }
     toast.info(`${newPossession === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession started`);
   };
 
   const handleTurnover = async (playerId: number) => {
-    if (isPossessionActive) setIsPossessionActive(false);
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    if (isPossessionActive) stopPossession();
+    const team = activeStatsTeam;
     if (team === 'opponent') {
       const newStats = opponentPlayerStats.map((p) =>
         p.playerId === playerId ? { ...p, turnovers: p.turnovers + 1 } : p,
@@ -567,17 +767,21 @@ export default function LiveStatsPage() {
     }
     const player = activePlayerStats.find((p) => p.playerId === playerId);
     if (player) toast.error(`${player.playerName} - Turnover`);
-    const currentTime = currentPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
-    const duration = currentTime - currentPossessionStart;
+    const duration = Math.max(0, gameTime - currentPossessionStart);
     if (currentPossession && duration > 0) {
       setPossessionTimeline((prev) => [...prev, { id: Date.now().toString(), team: currentPossession, timestamp: currentPossessionStart, duration, event: 'Turnover' }]);
     }
-    setTimeout(() => switchPossession(currentPossession ?? 'ucDavis'), 500);
+    // End current possession row before switching
+    if (matchId && currentPossession) {
+      dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Turnover' });
+    }
+    // Turnover: possession goes to the OTHER team (away from the team that turned it over)
+    setTimeout(() => switchPossession(activeStatsTeam, 'Turnover'), 500);
   };
 
   const handleSteal = async (playerId: number) => {
-    if (isPossessionActive) setIsPossessionActive(false);
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    if (isPossessionActive) stopPossession();
+    const team = activeStatsTeam;
     if (team === 'opponent') {
       const newStats = opponentPlayerStats.map((p) =>
         p.playerId === playerId ? { ...p, steals: p.steals + 1 } : p,
@@ -599,29 +803,34 @@ export default function LiveStatsPage() {
     }
     const player = activePlayerStats.find((p) => p.playerId === playerId);
     if (player) toast.success(`${player.playerName} - Steal!`);
-    const currentTime = currentPossession === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
-    const duration = currentTime - currentPossessionStart;
+    const duration = Math.max(0, gameTime - currentPossessionStart);
     if (currentPossession && duration > 0) {
       setPossessionTimeline((prev) => [...prev, { id: Date.now().toString(), team: currentPossession, timestamp: currentPossessionStart, duration, event: 'Steal' }]);
     }
-    setTimeout(() => switchPossession(currentPossession ?? 'ucDavis'), 500);
+    // End current possession row before switching
+    if (matchId && currentPossession) {
+      dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Steal' });
+    }
+    // Steal: possession goes TO the stealing team (activeStatsTeam)
+    // switchPossession takes fromTeam (the team losing possession), so pass the opposite of activeStatsTeam
+    setTimeout(() => switchPossession(activeStatsTeam === 'ucDavis' ? 'opponent' : 'ucDavis', 'Steal'), 500);
   };
 
   const handleShotClick = (playerId: number) => {
     const player = activePlayerStats.find((p) => p.playerId === playerId);
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    const team = activeStatsTeam;
     if (player) { setPendingAction({ type: 'shot', playerId, playerName: player.playerName, team }); setShowHeatmapModal(true); }
   };
 
   const handleGoalClick = (playerId: number) => {
     const player = activePlayerStats.find((p) => p.playerId === playerId);
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    const team = activeStatsTeam;
     if (player) { setPendingAction({ type: 'goal', playerId, playerName: player.playerName, team }); setShowHeatmapModal(true); }
   };
 
   const handleAssistClick = (playerId: number) => {
     const player = activePlayerStats.find((p) => p.playerId === playerId);
-    const team = currentPossession === 'opponent' ? 'opponent' : 'ucDavis';
+    const team = activeStatsTeam;
     if (player) { setPendingAction({ type: 'assist', playerId, playerName: player.playerName, team }); setShowHeatmapModal(true); }
   };
 
@@ -653,6 +862,7 @@ export default function LiveStatsPage() {
         saveToHistory(newStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - Shot recorded (${formation})`);
+      setShotClock(SHOT_CLOCK_SECONDS);
     } else if (type === 'goal') {
       if (team === 'opponent') {
         const newStats = opponentPlayerStats.map((p) => p.playerId === playerId ? { ...p, goals: p.goals + 1, shots: p.shots + 1 } : p);
@@ -664,24 +874,36 @@ export default function LiveStatsPage() {
         saveToHistory(newStats, opponentPlayerStats, teamStats, plays, currentQuarter, newHeatmapData, refereeCalls);
       }
       toast.success(`${playerName} - GOAL! (${formation})`);
+      setReplayEvents((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-goal-${playerId}`,
+          type: 'goal',
+          gameTime,
+          quarter: currentQuarter,
+          team,
+          playerId,
+          playerName,
+        },
+      ]);
       if (activeEjections.length > 0) {
         activeEjections.forEach((ej) => toast.info(`${ej.playerName} ejection ended (goal scored)`));
         setActiveEjections([]);
       }
-      const currentTime = team === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent;
-      const duration = currentTime - currentPossessionStart;
+      const duration = Math.max(0, gameTime - currentPossessionStart);
       if (duration > 0) {
         setPossessionTimeline((prev) => [...prev, { id: Date.now().toString(), team, timestamp: currentPossessionStart, duration, event: 'Goal' }]);
       }
-      if (isPossessionActive) setIsPossessionActive(false);
-      setTimeout(() => {
-        const newPoss = team === 'ucDavis' ? 'opponent' : 'ucDavis';
-        setCurrentPossession(newPoss);
-        setCurrentPossessionStart(newPoss === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent);
-        setIsPossessionActive(true);
-        setSelectedPlayer(null);
-        toast.info(`${newPoss === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession started (restart)`);
-      }, 500);
+      if (isPossessionActive) stopPossession();
+      if (matchId && currentPossession) {
+        dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Goal' });
+      }
+      const nextTeam = team === 'ucDavis' ? 'opponent' : 'ucDavis';
+      setCurrentPossession(nextTeam);
+      setActiveStatsTeam(nextTeam);
+      setIsPossessionActive(false);
+      setShotClock(null);
+      toast.info('Possession switched after goal. Start shot clock manually when play resumes.');
     } else if (type === 'assist') {
       if (team === 'opponent') {
         const newStats = opponentPlayerStats.map((p) => p.playerId === playerId ? { ...p, assists: p.assists + 1 } : p);
@@ -704,7 +926,7 @@ export default function LiveStatsPage() {
     if (!selectedPlayer || !currentNote.trim()) { toast.error('Please enter a note'); return; }
     const timestamp = `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')} Q${currentQuarter}`;
     const noteWithTimestamp = `[${timestamp}] ${currentNote.trim()}`;
-    if (currentPossession === 'opponent') {
+    if (activeStatsTeam === 'opponent') {
       const newStats = opponentPlayerStats.map((p) =>
         p.playerId === selectedPlayer ? { ...p, notes: [...(p.notes || []), noteWithTimestamp] } : p,
       );
@@ -726,55 +948,306 @@ export default function LiveStatsPage() {
     toast.success('Note added');
   };
 
+  const rebuildRefereeCounts = (calls: RefereeCall[]) => {
+    const counts = {
+      'yellow-card': 0,
+      'red-card': 0,
+      ejection: 0,
+      'minor-foul': 0,
+      'major-foul': 0,
+      simulation: 0,
+      'offensive-foul': 0,
+      'defensive-foul': 0,
+      brutality: 0,
+      timeout: 0,
+    } as Record<RefereeCall['type'], number>;
+    calls.forEach((c) => {
+      counts[c.type] += 1;
+    });
+    return counts;
+  };
+
+  const handleReplayRollback = (eventIds: string[]) => {
+    const selectedIds = new Set(eventIds);
+    const toRollback = replayEvents.filter((ev) => selectedIds.has(ev.id));
+    if (toRollback.length === 0) {
+      toast.info('No events selected for correction');
+      return;
+    }
+
+    const rollbackIds = new Set(toRollback.map((ev) => ev.id));
+    const nextReplayEvents = replayEvents.filter((ev) => !rollbackIds.has(ev.id));
+
+    const rollbackRefCallIds = new Set(
+      toRollback
+        .map((ev) => ev.refereeCallId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    const nextRefCalls = refereeCalls.filter((call) => !rollbackRefCallIds.has(call.id));
+    setRefereeCalls(nextRefCalls);
+    setRefereeCallCounts(rebuildRefereeCounts(nextRefCalls));
+
+    let nextUc = [...ucDavisPlayerStats];
+    let nextOpp = [...opponentPlayerStats];
+
+    toRollback.forEach((ev) => {
+      if (!ev.playerId) return;
+      if (ev.type === 'goal') {
+        if (ev.team === 'ucDavis') {
+          nextUc = nextUc.map((p) =>
+            p.playerId === ev.playerId
+              ? { ...p, goals: Math.max(0, p.goals - 1), shots: Math.max(0, p.shots - 1) }
+              : p,
+          );
+        } else if (ev.team === 'opponent') {
+          nextOpp = nextOpp.map((p) =>
+            p.playerId === ev.playerId
+              ? { ...p, goals: Math.max(0, p.goals - 1), shots: Math.max(0, p.shots - 1) }
+              : p,
+          );
+        }
+      }
+      if (ev.type === 'exclusion' || ev.type === 'ejection') {
+        if (ev.team === 'ucDavis') {
+          nextUc = nextUc.map((p) =>
+            p.playerId === ev.playerId
+              ? {
+                  ...p,
+                  exclusions: Math.max(0, p.exclusions - 1),
+                  majorFouls: Math.max(0, (p.majorFouls ?? 0) - 1),
+                }
+              : p,
+          );
+        } else if (ev.team === 'opponent') {
+          nextOpp = nextOpp.map((p) =>
+            p.playerId === ev.playerId
+              ? {
+                  ...p,
+                  exclusions: Math.max(0, p.exclusions - 1),
+                  majorFouls: Math.max(0, (p.majorFouls ?? 0) - 1),
+                }
+              : p,
+          );
+        }
+      }
+    });
+
+    setUcDavisPlayerStats(nextUc);
+    setOpponentPlayerStats(nextOpp);
+    setReplayEvents(nextReplayEvents);
+    setSuspendedPlayerIds((prev) => prev.filter((id) => !toRollback.some((ev) => ev.playerId === id)));
+    setActiveEjections((prev) => prev.filter((ej) => !toRollback.some((ev) => ev.playerId === ej.playerId)));
+
+    saveToHistory(nextUc, nextOpp, teamStats, plays, currentQuarter, heatmapData, nextRefCalls);
+    toast.success(`Correction applied: removed ${toRollback.length} event(s)`);
+  };
+
   const handleRefereeCall = (callType: RefereeCall['type']) => {
     setIsPaused(true);
+    stopPossession();
     setPendingRefereeCall(callType);
     setShowRefereeCallModal(true);
   };
 
-  const addRefereeCall = async (playerName?: string, team?: 'ucDavis' | 'opponent') => {
+  const addRefereeCall = async (
+    playerName?: string,
+    team?: 'ucDavis' | 'opponent',
+    playerId?: number,
+  ) => {
     if (!pendingRefereeCall) return;
     const timestamp = `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')}`;
-    const newCall: RefereeCall = { id: Date.now().toString(), type: pendingRefereeCall, playerName, team, timestamp, gameTime, quarter: currentQuarter };
+    const newCall: RefereeCall = {
+      id: Date.now().toString(),
+      type: pendingRefereeCall,
+      playerName,
+      playerId,
+      team,
+      timestamp,
+      gameTime,
+      quarter: currentQuarter,
+    };
     const newRefereeCalls = [...refereeCalls, newCall];
     setRefereeCalls(newRefereeCalls);
+    const replayEventsToAdd: ReplayEvent[] = [];
 
     if (matchId) {
       try {
         const playerStats = team === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats;
         const matchedPlayer = playerName ? playerStats.find((p) => p.playerName === playerName) : undefined;
         await api.createRefereeCall(matchId, {
-          call_type: pendingRefereeCall, player_id: matchedPlayer?.playerId,
+          call_type: pendingRefereeCall,
+          player_id: playerId ?? matchedPlayer?.playerId,
           player_name: playerName, team, quarter: currentQuarter, game_time: gameTime,
         });
       } catch (error) { console.error('Failed to sync referee call:', error); }
     }
 
     setRefereeCallCounts((prev) => ({ ...prev, [pendingRefereeCall]: prev[pendingRefereeCall] + 1 }));
-    saveToHistory(ucDavisPlayerStats, opponentPlayerStats, teamStats, plays, currentQuarter, heatmapData, newRefereeCalls);
+    const offendingTeam = team;
+    const offenderId = playerId;
 
-    if (pendingRefereeCall === 'ejection' && playerName && team) {
-      const playerStats = team === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats;
-      const player = playerStats.find((p) => p.playerName === playerName);
-      if (player) {
-        setActiveEjections((prev) => [...prev, { playerId: player.playerId, playerName: player.playerName, team, timeRemaining: 20, startTime: gameTime }]);
-        if (team === 'ucDavis') {
-          setUcDavisPlayerStats((prev) => prev.map((p) => p.playerId === player.playerId ? { ...p, exclusions: p.exclusions + 1 } : p));
-        } else {
-          setOpponentPlayerStats((prev) => prev.map((p) => p.playerId === player.playerId ? { ...p, exclusions: p.exclusions + 1 } : p));
-        }
-        toast.warning(`${playerName} ejected for 20 seconds (or until goal/possession change)`);
+    let nextUcDavis = ucDavisPlayerStats;
+    let nextOpponent = opponentPlayerStats;
+
+    const applyMajorFoulToRoster = (teamSide: 'ucDavis' | 'opponent', id: number) => {
+      const updater = (player: PlayerStat) => {
+        if (player.playerId !== id) return player;
+        const updatedMajorFouls = (player.majorFouls ?? 0) + 1;
+        return {
+          ...player,
+          majorFouls: updatedMajorFouls,
+          exclusions: player.exclusions + 1,
+          isActive: updatedMajorFouls >= 3 ? false : player.isActive,
+        };
+      };
+      if (teamSide === 'ucDavis') {
+        nextUcDavis = nextUcDavis.map(updater);
+      } else {
+        nextOpponent = nextOpponent.map(updater);
+      }
+    };
+
+    if (offendingTeam && offenderId && ['major-foul', 'ejection', 'brutality'].includes(pendingRefereeCall)) {
+      applyMajorFoulToRoster(offendingTeam, offenderId);
+    }
+
+    if (pendingRefereeCall !== 'ejection') {
+      replayEventsToAdd.push({
+        id: `${newCall.id}-ref`,
+        type: 'referee-call',
+        gameTime,
+        quarter: currentQuarter,
+        team,
+        playerId,
+        playerName,
+        callType: pendingRefereeCall,
+        refereeCallId: newCall.id,
+      });
+    }
+
+    if (pendingRefereeCall === 'ejection' && playerName && offendingTeam && offenderId) {
+      replayEventsToAdd.push({
+        id: `${newCall.id}-exclusion`,
+        type: 'ejection',
+        gameTime,
+        quarter: currentQuarter,
+        team: offendingTeam,
+        playerId: offenderId,
+        playerName,
+        refereeCallId: newCall.id,
+      });
+      setActiveEjections((prev) => [...prev, { playerId: offenderId, playerName, team: offendingTeam, timeRemaining: 20, startTime: gameTime }]);
+      toast.warning(`${playerName} ejected for 20 seconds (or until goal/possession change)`);
+    }
+
+    if (pendingRefereeCall === 'major-foul' && playerName && offendingTeam && offenderId) {
+      replayEventsToAdd.push({
+        id: `${newCall.id}-major`,
+        type: 'exclusion',
+        gameTime,
+        quarter: currentQuarter,
+        team: offendingTeam,
+        playerId: offenderId,
+        playerName,
+        refereeCallId: newCall.id,
+      });
+      const updated = (offendingTeam === 'ucDavis' ? nextUcDavis : nextOpponent).find((p) => p.playerId === offenderId);
+      if (updated && (updated.majorFouls ?? 0) >= 3) {
+        setSuspendedPlayerIds((prev) => (prev.includes(offenderId) ? prev : [...prev, offenderId]));
+        toast.error(`${playerName} has 3 major fouls and is out for the remainder of the game`);
+      } else {
+        setActiveEjections((prev) => [...prev, { playerId: offenderId, playerName, team: offendingTeam, timeRemaining: 20, startTime: gameTime }]);
+        toast.warning(`${playerName} major foul recorded (exclusion +1)`);
       }
     }
 
+    if (pendingRefereeCall === 'brutality' && playerName && offendingTeam && offenderId) {
+      replayEventsToAdd.push({
+        id: `${newCall.id}-brutality`,
+        type: 'exclusion',
+        gameTime,
+        quarter: currentQuarter,
+        team: offendingTeam,
+        playerId: offenderId,
+        playerName,
+        refereeCallId: newCall.id,
+      });
+      setSuspendedPlayerIds((prev) => (prev.includes(offenderId) ? prev : [...prev, offenderId]));
+      setNoSubUntilGameTime((prev) => ({
+        ...prev,
+        [offendingTeam]: Math.max(prev[offendingTeam], gameTime + 240),
+      }));
+      if (offendingTeam === 'ucDavis') {
+        nextUcDavis = nextUcDavis.map((p) => (p.playerId === offenderId ? { ...p, isActive: false } : p));
+      } else {
+        nextOpponent = nextOpponent.map((p) => (p.playerId === offenderId ? { ...p, isActive: false } : p));
+      }
+      const offendedTeam = offendingTeam === 'ucDavis' ? 'opponent' : 'ucDavis';
+      setCurrentPossession(offendedTeam);
+      setSelectedPlayer(null);
+      toast.error('Brutality: player removed; no substitute allowed for 4:00 game time; penalty throw awarded');
+    }
+
+    if (pendingRefereeCall === 'minor-foul') {
+      toast.info('Minor foul recorded (free throw, direct shot allowed outside 5m)');
+    }
+
+    if (pendingRefereeCall === 'simulation') {
+      if (offendingTeam && currentPossession) {
+        if (offendingTeam === currentPossession) {
+          const newPossession = offendingTeam === 'ucDavis' ? 'opponent' : 'ucDavis';
+          setCurrentPossession(newPossession);
+          setShotClock(Math.max(0, QUARTER_DURATION_SECONDS - gameTime) < SHOT_CLOCK_SECONDS ? null : SHOT_CLOCK_SECONDS);
+          toast.warning('Simulation by team in possession: turnover awarded to opponent');
+        } else {
+          setShotClock(Math.max(0, QUARTER_DURATION_SECONDS - gameTime) < SHOT_CLOCK_SECONDS ? null : SHOT_CLOCK_SECONDS);
+          toast.warning('Simulation by defending team: shot clock reset, possession retained');
+        }
+      } else {
+        toast.info('Simulation recorded');
+      }
+    }
+
+    if (pendingRefereeCall === 'timeout') {
+      replayEventsToAdd.push({
+        id: `${newCall.id}-timeout`,
+        type: 'timeout',
+        gameTime,
+        quarter: currentQuarter,
+        team,
+        playerName,
+        refereeCallId: newCall.id,
+      });
+    }
+
+    if (nextUcDavis !== ucDavisPlayerStats) setUcDavisPlayerStats(nextUcDavis);
+    if (nextOpponent !== opponentPlayerStats) setOpponentPlayerStats(nextOpponent);
+    if (replayEventsToAdd.length > 0) {
+      setReplayEvents((prev) => [...prev, ...replayEventsToAdd]);
+    }
+
+    saveToHistory(nextUcDavis, nextOpponent, teamStats, plays, currentQuarter, heatmapData, newRefereeCalls);
+
     const callLabel = pendingRefereeCall.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    if (pendingRefereeCall !== 'ejection') toast.success(`${callLabel} recorded${playerName ? ` - ${playerName}` : ''}`);
+    if (!['ejection', 'major-foul', 'brutality', 'minor-foul'].includes(pendingRefereeCall)) {
+      toast.success(`${callLabel} recorded${playerName ? ` - ${playerName}` : ''}`);
+    }
     setShowRefereeCallModal(false);
     setPendingRefereeCall(null);
   };
 
   const handleSubstitution = async () => {
     if (!firstSelectedPlayer || !secondSelectedPlayer || !subTeam) { toast.error('Please select two players to swap'); return; }
+    if (gameTime < noSubUntilGameTime[subTeam]) {
+      const remaining = noSubUntilGameTime[subTeam] - gameTime;
+      toast.error(`No substitutions allowed for this team for ${formatTime(remaining)} due to brutality`);
+      return;
+    }
+    if (suspendedPlayerIds.includes(firstSelectedPlayer) || suspendedPlayerIds.includes(secondSelectedPlayer)) {
+      toast.error('Suspended players cannot be substituted back in');
+      return;
+    }
     const playerStats = subTeam === 'ucDavis' ? ucDavisPlayerStats : opponentPlayerStats;
     const player1 = playerStats.find((p) => p.playerId === firstSelectedPlayer);
     const player2 = playerStats.find((p) => p.playerId === secondSelectedPlayer);
@@ -803,18 +1276,31 @@ export default function LiveStatsPage() {
     setSubTeam(null);
   };
 
+  const handleSelectPlayer = (playerId: number, team: 'ucDavis' | 'opponent') => {
+    if (isPossessionActive && currentPossession && currentPossession !== team) {
+      stopPossession();
+      startPossession(team, false);
+      toast.info(`${team === 'ucDavis' ? 'UC Davis' : 'Opponent'} possession selected`);
+    } else if (!isPossessionActive) {
+      setCurrentPossession(team);
+    }
+    setSelectedPlayer(playerId);
+  };
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="p-8 bg-[#F5F7FA] min-h-screen">
+    <div className="p-4 bg-[#F5F7FA] min-h-screen">
       <GameHeader
         isGameActive={isGameActive}
         isPaused={isPaused}
         isInBreak={isInBreak}
         gameTime={gameTime}
         breakTimeRemaining={breakTimeRemaining}
+        quarterDurationSeconds={QUARTER_DURATION_SECONDS}
+        shotClockSeconds={shotClock}
         currentQuarter={currentQuarter}
         canUndo={canUndo}
         canRedo={canRedo}
@@ -837,87 +1323,185 @@ export default function LiveStatsPage() {
         onSkipBreak={handleSkipBreak}
       />
 
-      <div className="space-y-6">
-        <PossessionTimer
-          possessionTimeUCDavis={teamStats.possessionTimeUCDavis}
-          possessionTimeOpponent={teamStats.possessionTimeOpponent}
-          currentPossession={currentPossession}
-          isPossessionActive={isPossessionActive}
-          isGameActive={isGameActive}
-          onSetPossession={(team) => {
-            if (team === null) {
-              setIsPossessionActive(false);
-              setSelectedPlayer(null);
-            } else {
-              setCurrentPossession(team);
-              setCurrentPossessionStart(
-                team === 'ucDavis' ? teamStats.possessionTimeUCDavis : teamStats.possessionTimeOpponent,
-              );
-              setIsPossessionActive(true);
-              setSelectedPlayer(null);
-            }
-          }}
-        />
-
-        <ActiveEjections activeEjections={activeEjections} />
-
-        {currentPossession && (
-          <TeamIndicatorBanner currentPossession={currentPossession} activeTeamName={activeTeamName} />
-        )}
-
-        <PlayerGrid
-          ucDavisPlayerStats={ucDavisPlayerStats}
-          opponentPlayerStats={opponentPlayerStats}
-          selectedPlayer={selectedPlayer}
-          currentPossession={currentPossession}
-          isPossessionActive={isPossessionActive}
-          activeEjections={activeEjections}
-          onSelectPlayer={(playerId, team) => {
-            setSelectedPlayer(playerId);
-            setCurrentPossession(team);
-          }}
-          onOpenSubModal={(team) => {
-            setSubTeam(team);
-            setShowSubModal(true);
-          }}
-        />
-
-        {selectedPlayer !== null && currentPossession !== null && (
-          <StatActionPanel
-            selectedPlayer={selectedPlayer}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-3 xl:sticky xl:top-4 xl:self-start">
+          <PossessionTimer
+            possessionTimeUCDavis={teamStats.possessionTimeUCDavis}
+            possessionTimeOpponent={teamStats.possessionTimeOpponent}
             currentPossession={currentPossession}
-            activePlayerStats={activePlayerStats}
-            gameTime={gameTime}
-            currentQuarter={currentQuarter}
-            currentNote={currentNote}
-            onCurrentNoteChange={setCurrentNote}
-            onShotClick={handleShotClick}
-            onGoalClick={handleGoalClick}
-            onAssistClick={handleAssistClick}
-            onTurnover={handleTurnover}
-            onSteal={handleSteal}
-            onUpdateStat={updatePlayerStat}
-            onAddNote={handleAddNote}
+            isPossessionActive={isPossessionActive}
+            isGameActive={isGameActive}
+            isPaused={isPaused}
+            isInBreak={isInBreak}
+            onSetPossession={(team) => {
+              if (team === null) {
+                // Manual stop — end possession record
+                if (isPossessionActive && currentPossession && matchId) {
+                  const duration = Math.max(0, gameTime - currentPossessionStart);
+                  dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Turnover' });
+                }
+                stopPossession();
+                setCurrentPossession(null);
+              } else {
+                // Manual start — end any running possession first, then start new one
+                if (isPossessionActive && currentPossession && matchId) {
+                  const duration = Math.max(0, gameTime - currentPossessionStart);
+                  dbEndPossession({ endTimeSeconds: gameTime, durationSeconds: duration, endReason: 'Turnover' });
+                }
+                setActiveStatsTeam(team);
+                startPossession(team);
+                if (matchId) {
+                  const teamId = team === 'ucDavis' ? 1 : oppTeamId;
+                  if (teamId) {
+                    dbStartPossession({ matchId, teamId, quarter: currentQuarter, startTimeSeconds: gameTime, startReason: 'Sprint' });
+                  }
+                }
+              }
+            }}
           />
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <TeamSituations teamStats={teamStats} onUpdateTeamStat={updateTeamStat} />
-          <RefereePanel
-            refereeName={refereeName}
-            refereeCallCounts={refereeCallCounts}
-            refereeCalls={refereeCalls}
-            onRefereeNameChange={setRefereeName}
-            onRefereeCall={handleRefereeCall}
-          />
-          <PossessionTimeline possessionTimeline={possessionTimeline} />
+          <ActiveEjections activeEjections={activeEjections} />
+
+          {(noSubUntilGameTime.ucDavis > gameTime || noSubUntilGameTime.opponent > gameTime) && (
+            <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              {noSubUntilGameTime.ucDavis > gameTime && (
+                <div>UC Davis no-sub timer: {formatTime(noSubUntilGameTime.ucDavis - gameTime)} remaining</div>
+              )}
+              {noSubUntilGameTime.opponent > gameTime && (
+                <div>Opponent no-sub timer: {formatTime(noSubUntilGameTime.opponent - gameTime)} remaining</div>
+              )}
+            </div>
+          )}
+
+          {currentPossession && (
+            <TeamIndicatorBanner currentPossession={currentPossession} activeTeamName={activeTeamName} />
+          )}
         </div>
 
-        <StatsTable
-          ucDavisPlayerStats={ucDavisPlayerStats}
-          opponentPlayerStats={opponentPlayerStats}
-        />
+        <div className="space-y-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setActivePanel('players')}
+                className={`rounded-md px-3 py-2 text-sm ${
+                  activePanel === 'players'
+                    ? 'bg-[#022851] text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Players
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePanel('match')}
+                className={`rounded-md px-3 py-2 text-sm ${
+                  activePanel === 'match'
+                    ? 'bg-[#022851] text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Game Management
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePanel('analytics')}
+                className={`rounded-md px-3 py-2 text-sm ${
+                  activePanel === 'analytics'
+                    ? 'bg-[#022851] text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Analytics
+              </button>
+            </div>
+          </div>
+
+          {activePanel === 'players' && (
+            <PlayerGrid
+              ucDavisPlayerStats={ucDavisPlayerStats}
+              opponentPlayerStats={opponentPlayerStats}
+              selectedPlayer={selectedPlayer}
+              currentPossession={currentPossession}
+              isPossessionActive={isPossessionActive}
+              activeEjections={activeEjections}
+              suspendedPlayerIds={suspendedPlayerIds}
+              onSelectPlayer={(playerId, team) => {
+                handleSelectPlayer(playerId, team);
+                setActiveStatsTeam(team);
+              }}
+              onOpenSubModal={(team) => {
+                setSubTeam(team);
+                setShowSubModal(true);
+              }}
+            />
+          )}
+
+          {activePanel === 'match' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <TeamSituations teamStats={teamStats} onUpdateTeamStat={updateTeamStat} />
+              <RefereePanel
+                refereeName={refereeName}
+                refereeCallCounts={refereeCallCounts}
+                refereeCalls={refereeCalls}
+                onRefereeNameChange={setRefereeName}
+                onRefereeCall={handleRefereeCall}
+              />
+              <ReplayRollbackPanel
+                replayEvents={replayEvents}
+                onApplyRollback={handleReplayRollback}
+              />
+            </div>
+          )}
+
+          {activePanel === 'analytics' && (
+            <>
+              <FilmReviewPanel
+                replayEvents={replayEvents}
+                quarterDurationSeconds={QUARTER_DURATION_SECONDS}
+                matchId={matchId}
+                currentQuarter={currentQuarter}
+              />
+
+              <PossessionTimeline possessionTimeline={possessionTimeline} />
+
+              <StatsTable
+                ucDavisPlayerStats={ucDavisPlayerStats}
+                opponentPlayerStats={opponentPlayerStats}
+              />
+            </>
+          )}
+        </div>
       </div>
+
+        {selectedPlayer !== null && selectedPlayerExistsInActiveTeam && (
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/35 p-4 md:items-center">
+            <div className="w-full max-w-5xl max-h-[85vh] overflow-y-auto rounded-xl">
+              <StatActionPanel
+                selectedPlayer={selectedPlayer}
+                currentPossession={activeStatsTeam}
+                isOnOffense={
+                  isPossessionActive && currentPossession !== null
+                    ? activeStatsTeam === currentPossession
+                    : undefined
+                }
+                activePlayerStats={activePlayerStats}
+                gameTime={gameTime}
+                currentQuarter={currentQuarter}
+                currentNote={currentNote}
+                onCurrentNoteChange={setCurrentNote}
+                onShotClick={handleShotClick}
+                onGoalClick={handleGoalClick}
+                onAssistClick={handleAssistClick}
+                onTurnover={handleTurnover}
+                onSteal={handleSteal}
+                onUpdateStat={updatePlayerStat}
+                onAddNote={handleAddNote}
+                onClose={() => setSelectedPlayer(null)}
+              />
+            </div>
+          </div>
+        )}
 
       {/* Modals */}
       <PlayerEditModal

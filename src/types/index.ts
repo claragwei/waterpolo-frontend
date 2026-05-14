@@ -14,6 +14,7 @@ export interface PlayerStat {
   steals: number;
   hustle: number;
   exclusions: number;
+  majorFouls?: number;
   draws: number;
   isActive: boolean;
   notes?: string[];
@@ -49,8 +50,19 @@ export interface HeatmapData {
 
 export interface RefereeCall {
   id: string;
-  type: 'yellow-card' | 'red-card' | 'ejection' | 'offensive-foul' | 'defensive-foul' | 'brutality' | 'timeout';
+  type:
+    | 'yellow-card'
+    | 'red-card'
+    | 'ejection'
+    | 'minor-foul'
+    | 'major-foul'
+    | 'simulation'
+    | 'offensive-foul'
+    | 'defensive-foul'
+    | 'brutality'
+    | 'timeout';
   playerName?: string;
+  playerId?: number;
   team?: 'ucDavis' | 'opponent';
   timestamp: string;
   gameTime: number;

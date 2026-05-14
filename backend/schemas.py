@@ -33,6 +33,7 @@ class PlayerCreate(BaseModel):
     jersey_number: int
     position: Optional[str] = None
     is_active: bool = True
+    photo_url: Optional[str] = None
 
 
 class PlayerUpdate(BaseModel):
@@ -40,6 +41,7 @@ class PlayerUpdate(BaseModel):
     jersey_number: Optional[int] = None
     position: Optional[str] = None
     is_active: Optional[bool] = None
+    photo_url: Optional[str] = None
 
 
 class PlayerResponse(BaseModel):
@@ -49,6 +51,7 @@ class PlayerResponse(BaseModel):
     jersey_number: int
     position: Optional[str]
     is_active: bool
+    photo_url: Optional[str] = None
     total_goals: int
     total_assists: int
     total_shots: int
@@ -71,6 +74,8 @@ class MatchCreate(BaseModel):
     opponent_team_id: int
     match_date: datetime
     location: Optional[str] = None
+    # scheduled | in_progress | completed — default scheduled for Matches UI
+    status: Optional[str] = None
 
 
 class MatchUpdate(BaseModel):
@@ -280,5 +285,27 @@ class NoteResponse(BaseModel):
     player_id: int
     note: str
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Match Video Sync
+# ---------------------------------------------------------------------------
+
+class MatchVideoSyncUpsert(BaseModel):
+    quarter: int = 1
+    video_url: str
+    video_offset_sec: int = 0
+
+
+class MatchVideoSyncResponse(BaseModel):
+    id: int
+    match_id: int
+    quarter: int
+    video_url: str
+    video_offset_sec: int
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
