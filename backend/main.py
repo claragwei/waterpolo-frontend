@@ -248,10 +248,10 @@ def compute_and_save_score(row: PlayerMatchStats):
     row.save()
 
     def _score_tier(score: float) -> str:
-    if score >= 80: return "elite"
-    if score >= 60: return "strong"
-    if score >= 40: return "average"
-    return "developing"
+        if score >= 80: return "elite"
+        if score >= 60: return "strong"
+        if score >= 40: return "average"
+        return "developing"
 
 # ---------------------------------------------------------------------------
 # Teams
