@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { usePossessionViewModel } from '../hooks/usePossessionViewModel';
 import { toast } from 'sonner@2.0.3';
@@ -31,6 +31,8 @@ import HeatmapModal from './HeatmapModal';
 import RefereeCallModal from './RefereeCallModal';
 import SubstitutionModal from './SubstitutionModal';
 import ReplayRollbackPanel from './ReplayRollbackPanel';
+import { Card } from './ui/card';
+import { Flag } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Initial rosters
@@ -1438,8 +1440,7 @@ export default function LiveStatsPage() {
           )}
 
           {activePanel === 'match' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <TeamSituations teamStats={teamStats} onUpdateTeamStat={updateTeamStat} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <RefereePanel
                 refereeName={refereeName}
                 refereeCallCounts={refereeCallCounts}
@@ -1456,14 +1457,36 @@ export default function LiveStatsPage() {
 
           {activePanel === 'analytics' && (
             <>
+              <Card className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+                <h3 className="text-[#022851] mb-2 text-lg">Match reports</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Generate the halftime report (Q1 + Q2) from data logged in this match.
+                </p>
+                {matchId ? (
+                  <Link
+                    to={`/reports?matchId=${matchId}&halftime=1`}
+                    className="inline-flex items-center gap-2 rounded-md bg-[#022851] px-4 py-2 text-sm font-medium text-white hover:bg-[#034580]"
+                  >
+                    <Flag size={16} />
+                    Generate Halftime Report
+                  </Link>
+                ) : (
+                  <p className="text-sm text-amber-700">Start or resume a saved match to link reports.</p>
+                )}
+              </Card>
+
+              <TeamSituations
+                teamStats={teamStats}
+                onUpdateTeamStat={updateTeamStat}
+                possessionTimeline={possessionTimeline}
+              />
+
               <FilmReviewPanel
                 replayEvents={replayEvents}
                 quarterDurationSeconds={QUARTER_DURATION_SECONDS}
                 matchId={matchId}
                 currentQuarter={currentQuarter}
               />
-
-              <PossessionTimeline possessionTimeline={possessionTimeline} />
 
               <StatsTable
                 ucDavisPlayerStats={ucDavisPlayerStats}

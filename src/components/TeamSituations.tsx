@@ -1,14 +1,20 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import type { TeamStat } from '../types';
+import type { PossessionEvent, TeamStat } from '../types';
+import PossessionTimeline from './PossessionTimeline';
 
 interface TeamSituationsProps {
   teamStats: TeamStat;
   onUpdateTeamStat: (stat: keyof TeamStat) => void;
+  possessionTimeline?: PossessionEvent[];
 }
 
-export default function TeamSituations({ teamStats, onUpdateTeamStat }: TeamSituationsProps) {
+export default function TeamSituations({
+  teamStats,
+  onUpdateTeamStat,
+  possessionTimeline,
+}: TeamSituationsProps) {
   return (
     <Card className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
       <h3 className="text-[#022851] mb-3 text-lg">Team Situations</h3>
@@ -44,6 +50,9 @@ export default function TeamSituations({ teamStats, onUpdateTeamStat }: TeamSitu
           6v7 <Badge className="ml-1 bg-white text-orange-800">{teamStats.sixOnSeven}</Badge>
         </Button>
       </div>
+      {possessionTimeline != null && (
+        <PossessionTimeline possessionTimeline={possessionTimeline} compact embedded />
+      )}
     </Card>
   );
 }

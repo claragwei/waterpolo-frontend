@@ -22,8 +22,8 @@ export async function downloadMockQuarterPdf() {
 export async function downloadMockHalftimePdf() {
   const bundle = buildMockReportBundle('halftime');
   await downloadMatchReportPdf({
-    filename: 'halftime-stanford-demo',
-    title: `Halftime — UC Davis vs ${mockGameData.opponentName} (demo)`,
+    filename: 'halftime-stanford',
+    title: `Halftime — UC Davis vs ${mockGameData.opponentName}`,
     bundle,
     opponentName: mockGameData.opponentName,
     playerNames: mockPlayerNames(),

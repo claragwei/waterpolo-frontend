@@ -4,11 +4,14 @@ import { FileText, Download, Calendar, User, Trophy, Clock, Flag, BarChart3 } fr
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../services/api';
 import TeamAnalyticsPanel from './reports/TeamAnalyticsPanel';
+import { ReportDialogsFromBundle } from './reports/ReportDialogsFromBundle';
+import type { MatchReportBundle } from '../reports/aggregateMatchReport';
+import { normalizeMatchReportBundle } from '../reports/normalizeBundle';
 import {
-  downloadMockQuarterPdf,
   downloadMockHalftimePdf,
   downloadTeamAnalyticsReportPdf,
   downloadPlayerReportPdf,
@@ -20,8 +23,14 @@ function pdfError(e: unknown) {
 
 
 export default function ReportsPage() {
-  const [showQuarterReport, setShowQuarterReport] = useState(false);
+  const [searchParams] = useSearchParams();
+  const urlMatchId = searchParams.get('matchId');
+  const wantHalftime = searchParams.get('halftime') === '1';
+
   const [showHalftimeReport, setShowHalftimeReport] = useState(false);
+  const [liveBundle, setLiveBundle] = useState<MatchReportBundle | null>(null);
+  const [playersById, setPlayersById] = useState<Map<number, string>>(new Map());
+  const [reportQuarter, setReportQuarter] = useState(2);
   //new code
   const [showPlayerReport, setShowPlayerReport] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
@@ -33,9 +42,28 @@ export default function ReportsPage() {
   useEffect(() => {
     void api
       .getPlayers({ team_id: 1, is_active: true })
-      .then(setPlayers)
+      .then((rows) => {
+        setPlayers(rows);
+        setPlayersById(new Map(rows.map((p) => [p.id, p.name])));
+      })
       .catch(() => toast.error('Could not load players for reports'));
   }, []);
+
+  useEffect(() => {
+    const mid = urlMatchId ? Number(urlMatchId) : NaN;
+    if (!Number.isFinite(mid)) {
+      setLiveBundle(null);
+      return;
+    }
+    void api
+      .getMatchReportBundle(mid)
+      .then((raw) => setLiveBundle(normalizeMatchReportBundle(raw)))
+      .catch(() => toast.error('Could not load match data for reports'));
+  }, [urlMatchId]);
+
+  useEffect(() => {
+    if (wantHalftime) setShowHalftimeReport(true);
+  }, [wantHalftime]);
 
   const fetchPlayerStats = async (playerId: number) => {
     setLoadingStats(true);
@@ -91,130 +119,6 @@ export default function ReportsPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const renderQuarterReport = () => {
-    const quarter = mockGameData.currentQuarter;
-    const qData = mockGameData.quarterStats[`Q${quarter}` as 'Q1' | 'Q2'];
-    
-    return (
-      <Dialog open={showQuarterReport} onOpenChange={setShowQuarterReport}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl text-[#022851]">
-              Quarter {quarter} Report - UC Davis vs {mockGameData.opponentName}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-6">
-            {/* Score Summary */}
-            <Card className="p-6 bg-gradient-to-br from-[#022851] to-[#034580]">
-              <div className="flex justify-between items-center text-white">
-                <div className="text-center">
-                  <div className="text-sm opacity-80 mb-1">UC Davis</div>
-                  <div className="text-5xl font-bold text-[#FFBF00]">{qData.ucDavisGoals}</div>
-                </div>
-                <div className="text-center">
-                  <Badge className="bg-[#FFBF00] text-[#022851] text-lg px-4 py-2">Q{quarter}</Badge>
-                </div>
-                <div className="text-center">
-                  <div className="text-sm opacity-80 mb-1">{mockGameData.opponentName}</div>
-                  <div className="text-5xl font-bold">{qData.opponentGoals}</div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Statistics Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <Card className="p-4">
-                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
-                  <Clock size={18} className="text-[#FFBF00]" />
-                  Possession Time
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">UC Davis:</span>
-                    <span className="font-semibold text-[#022851]">{formatTime(qData.ucDavisPossessionTime)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
-                    <span className="font-semibold">{formatTime(qData.opponentPossessionTime)}</span>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="p-4">
-                <h3 className="text-[#022851] mb-3 flex items-center gap-2">
-                  <Trophy size={18} className="text-[#FFBF00]" />
-                  Shots
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">UC Davis:</span>
-                    <span className="font-semibold text-[#022851]">{qData.totalShots.ucDavis}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">{mockGameData.opponentName}:</span>
-                    <span className="font-semibold">{qData.totalShots.opponent}</span>
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Top Scorers */}
-            <Card className="p-4">
-              <h3 className="text-[#022851] mb-3">Top Scorers (UC Davis)</h3>
-              <div className="space-y-2">
-                {qData.topScorers.map((player, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                    <span className="font-medium">{player.name}</span>
-                    <div className="flex gap-4 text-sm">
-                      <span className="text-gray-600">{player.goals} goals</span>
-                      <span className="text-gray-600">{player.shots} shots</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* Referee Calls */}
-            <Card className="p-4">
-              <h3 className="text-[#022851] mb-3 flex items-center gap-2">
-                <Flag size={18} className="text-[#FFBF00]" />
-                Referee Calls
-              </h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-yellow-600">{qData.refereeCalls.yellowCards}</div>
-                  <div className="text-sm text-gray-600">Yellow Cards</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{qData.refereeCalls.ejections}</div>
-                  <div className="text-sm text-gray-600">Ejections</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-[#022851]">{qData.refereeCalls.penalties}</div>
-                  <div className="text-sm text-gray-600">Penalties</div>
-                </div>
-              </div>
-            </Card>
-
-            <div className="flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => setShowQuarterReport(false)}>
-                Close
-              </Button>
-              <Button
-                type="button"
-                className="bg-[#022851] hover:bg-[#034580] text-white"
-                onClick={() => void downloadMockQuarterPdf().catch(pdfError)}
-              >
-                <Download className="mr-2" size={16} />
-                Download PDF
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  };
 
   const renderHalftimeReport = () => {
     const q1Data = mockGameData.quarterStats.Q1;
@@ -570,7 +474,7 @@ export default function ReportsPage() {
     {
       id: 1,
       type: 'Match Report',
-      title: 'Stanford vs UC Davis (demo)',
+      title: 'Stanford vs UC Davis',
       date: 'Oct 24, 2025',
       status: 'Ready',
       icon: Trophy,
@@ -615,42 +519,39 @@ export default function ReportsPage() {
       action: () => document.getElementById('team-analytics')?.scrollIntoView({ behavior: 'smooth' }),
     },
     {
-      id: 4,
-      name: 'Season Summary Report',
-      description: 'Complete season overview with trends and highlights',
-      icon: Calendar,
-    },
-    {
-      id: 5,
-      name: 'Quarter Report',
-      description: 'Real-time report for the current quarter based on live stats data',
-      icon: Clock,
-      action: () => setShowQuarterReport(true),
-      highlight: true
-    },
-    {
       id: 6,
       name: 'Halftime Report',
-      description: 'Comprehensive first-half analysis combining Q1 and Q2 statistics',
+      description: 'First-half analysis (Q1 + Q2) from Live Stats or demo data',
       icon: Flag,
       action: () => setShowHalftimeReport(true),
-      highlight: true
+      highlight: true,
     },
     
   ];
 
   return (
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
-      {renderQuarterReport()}
-      {renderHalftimeReport()}
+      {liveBundle ? (
+        <ReportDialogsFromBundle
+          bundle={liveBundle}
+          playersById={playersById}
+          quarter={reportQuarter}
+          onQuarterChange={setReportQuarter}
+          showQuarter={false}
+          setShowQuarter={() => {}}
+          showHalftime={showHalftimeReport}
+          setShowHalftime={setShowHalftimeReport}
+        />
+      ) : (
+        renderHalftimeReport()
+      )}
       {renderPlayerSeasonReport()}
 
       
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>
         <p className="text-gray-600">
-          Demo quarter/halftime reports plus live team analytics (PPI, regression, subs). PDF downloads use{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">@react-pdf/renderer</code>.
+          Quarter/halftime reports plus live team analytics (PPI, regression, subs).
         </p>
       </div>
 
