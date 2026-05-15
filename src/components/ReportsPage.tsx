@@ -1,9 +1,22 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { FileText, Download, Calendar, User, Trophy, Clock, Flag } from 'lucide-react';
+import { FileText, Download, Calendar, User, Trophy, Clock, Flag, BarChart3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { api } from '../services/api';
+import TeamAnalyticsPanel from './reports/TeamAnalyticsPanel';
+import {
+  downloadMockQuarterPdf,
+  downloadMockHalftimePdf,
+  downloadTeamAnalyticsReportPdf,
+  downloadPlayerReportPdf,
+} from '../reports/reportDownloads';
+
+function pdfError(e: unknown) {
+  toast.error(e instanceof Error ? e.message : 'PDF download failed');
+}
 
 
 export default function ReportsPage() {
@@ -16,7 +29,28 @@ export default function ReportsPage() {
   const [selectedSeason, setSelectedSeason] = useState('2025');
   const [playerStats, setPlayerStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  // Mock data - in production, this would come from localStorage or state management
+
+  useEffect(() => {
+    void api
+      .getPlayers({ team_id: 1, is_active: true })
+      .then(setPlayers)
+      .catch(() => toast.error('Could not load players for reports'));
+  }, []);
+
+  const fetchPlayerStats = async (playerId: number) => {
+    setLoadingStats(true);
+    try {
+      const data = await api.getPlayerAverages(playerId);
+      setPlayerStats(data);
+    } catch {
+      toast.error('Failed to load player stats');
+      setPlayerStats(null);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  // Mock live-game demo (Stanford Q1/Q2) — PDFs use same layout as API-backed reports
   const mockGameData = {
     currentQuarter: 2,
     gameTime: 360, // 6 minutes into Q2
@@ -167,7 +201,11 @@ export default function ReportsPage() {
               <Button variant="outline" onClick={() => setShowQuarterReport(false)}>
                 Close
               </Button>
-              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+              <Button
+                type="button"
+                className="bg-[#022851] hover:bg-[#034580] text-white"
+                onClick={() => void downloadMockQuarterPdf().catch(pdfError)}
+              >
                 <Download className="mr-2" size={16} />
                 Download PDF
               </Button>
@@ -377,7 +415,11 @@ export default function ReportsPage() {
               <Button variant="outline" onClick={() => setShowHalftimeReport(false)}>
                 Close
               </Button>
-              <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+              <Button
+                type="button"
+                className="bg-[#022851] hover:bg-[#034580] text-white"
+                onClick={() => void downloadMockHalftimePdf().catch(pdfError)}
+              >
                 <Download className="mr-2" size={16} />
                 Download PDF
               </Button>
@@ -387,26 +429,7 @@ export default function ReportsPage() {
       </Dialog>
     );
   };
-useEffect(() => {
-  fetch('http://localhost:8000/api/players?team_id=1')
-    .then(res => res.json())
-    .then(data => setPlayers(data))
-    .catch(err => console.error('Failed to fetch players:', err));
-}, []);
-
-const fetchPlayerStats = async (playerId: number) => {
-  setLoadingStats(true);
-  try {
-    const res = await fetch(`http://localhost:8000/api/players/${playerId}/averages`);
-    const data = await res.json();
-    setPlayerStats(data);
-  } catch (err) {
-    console.error('Failed to fetch player stats:', err);
-  }
-  setLoadingStats(false);
-};
-
-const renderPlayerSeasonReport = () => (
+  const renderPlayerSeasonReport = () => (
   <Dialog open={showPlayerReport} onOpenChange={setShowPlayerReport}>
     <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
@@ -495,8 +518,28 @@ const renderPlayerSeasonReport = () => (
         )}
 
         <div className="flex gap-3 justify-end">
-          <Button variant="outline" onClick={() => setShowPlayerReport(false)}>Close</Button>
-          <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+          <Button variant="outline" onClick={() => setShowPlayerReport(false)}>
+            Close
+          </Button>
+          <Button
+            type="button"
+            className="bg-[#022851] hover:bg-[#034580] text-white"
+            disabled={!selectedPlayer || !playerStats}
+            onClick={() => {
+              if (!selectedPlayer || !playerStats) return;
+              void downloadPlayerReportPdf({
+                playerName: selectedPlayer.name,
+                season: selectedSeason,
+                stats: playerStats,
+                statRow: {
+                  goals: Number(playerStats.avg_goals ?? 0) * Number(playerStats.games_played ?? 1),
+                  shots: Number(playerStats.avg_shots ?? 0) * Number(playerStats.games_played ?? 1),
+                  assists: Number(playerStats.avg_assists ?? 0) * Number(playerStats.games_played ?? 1),
+                  steals: Number(playerStats.avg_steals ?? 0) * Number(playerStats.games_played ?? 1),
+                },
+              }).catch(pdfError);
+            }}
+          >
             <Download className="mr-2" size={16} />
             Download PDF
           </Button>
@@ -505,11 +548,29 @@ const renderPlayerSeasonReport = () => (
     </DialogContent>
   </Dialog>
 );
+  const recentReportActions: Record<
+    number,
+    { onView: () => void; onPdf: () => void }
+  > = {
+    1: {
+      onView: () => setShowHalftimeReport(true),
+      onPdf: () => void downloadMockHalftimePdf().catch(pdfError),
+    },
+    2: {
+      onView: () => setShowPlayerReport(true),
+      onPdf: () => setShowPlayerReport(true),
+    },
+    3: {
+      onView: () => document.getElementById('team-analytics')?.scrollIntoView({ behavior: 'smooth' }),
+      onPdf: () => void downloadTeamAnalyticsReportPdf().catch(pdfError),
+    },
+  };
+
   const availableReports = [
     {
       id: 1,
       type: 'Match Report',
-      title: 'Stanford vs UC Davis',
+      title: 'Stanford vs UC Davis (demo)',
       date: 'Oct 24, 2025',
       status: 'Ready',
       icon: Trophy,
@@ -517,18 +578,18 @@ const renderPlayerSeasonReport = () => (
     {
       id: 2,
       type: 'Player Report',
-      title: 'Marcus Silva - Monthly Analysis',
-      date: 'Oct 2025',
+      title: 'Player season analysis',
+      date: '2025',
       status: 'Ready',
       icon: User,
     },
     {
       id: 3,
-      type: 'Season Report',
-      title: 'Season 2025 Overview',
+      type: 'Team Analytics',
+      title: 'RAPM-style team report',
       date: '2025',
       status: 'Ready',
-      icon: Calendar,
+      icon: BarChart3,
     },
   ];
 
@@ -542,14 +603,16 @@ const renderPlayerSeasonReport = () => (
     {
       id: 2,
       name: 'Player Development Report',
-      description: 'Individual player progress tracking over selected time period',
+      description: 'Individual player progress with performance index (PPI) on PDF',
       icon: User,
+      action: () => setShowPlayerReport(true),
     },
     {
       id: 3,
       name: 'Team Analytics Report',
-      description: 'Team-wide statistics and performance metrics',
-      icon: FileText,
+      description: 'RAPM-style ratings, play-time regression, substitution hints',
+      icon: BarChart3,
+      action: () => document.getElementById('team-analytics')?.scrollIntoView({ behavior: 'smooth' }),
     },
     {
       id: 4,
@@ -585,7 +648,14 @@ const renderPlayerSeasonReport = () => (
       
       <div className="mb-8">
         <h1 className="text-[#022851] mb-2">Reports</h1>
-        <p className="text-gray-600">Generate and download comprehensive performance reports</p>
+        <p className="text-gray-600">
+          Demo quarter/halftime reports plus live team analytics (PPI, regression, subs). PDF downloads use{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">@react-pdf/renderer</code>.
+        </p>
+      </div>
+
+      <div id="team-analytics">
+        <TeamAnalyticsPanel />
       </div>
 
       {/* Generate Report Section */}
@@ -613,6 +683,7 @@ const renderPlayerSeasonReport = () => (
         <div className="grid gap-4">
           {availableReports.map((report) => {
             const Icon = report.icon;
+            const actions = recentReportActions[report.id];
             return (
               <Card key={report.id} className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between">
@@ -632,11 +703,20 @@ const renderPlayerSeasonReport = () => (
                   </div>
                   
                   <div className="flex gap-3">
-                    <Button variant="outline" className="border-gray-300">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-gray-300"
+                      onClick={actions?.onView}
+                    >
                       <FileText className="mr-2" size={16} />
                       View
                     </Button>
-                    <Button className="bg-[#022851] hover:bg-[#034580] text-white">
+                    <Button
+                      type="button"
+                      className="bg-[#022851] hover:bg-[#034580] text-white"
+                      onClick={actions?.onPdf}
+                    >
                       <Download className="mr-2" size={16} />
                       Download PDF
                     </Button>

@@ -193,8 +193,19 @@ export const api = {
         turnovers: number;
         penalties: number;
         exclusions: number;
+        time_in_pool?: number;
+        score?: number;
+        rebounds?: number;
+        sprints?: number;
+        hustle?: number;
+        draws?: number;
       }[]
     >(`/api/matches/${matchId}/stats`),
+
+  getMatchScores: (matchId: number) =>
+    apiFetch<
+      { player_id: number; score: number; tier: string }[]
+    >(`/api/matches/${matchId}/scores`),
 
   getMatchRefereeCalls: (matchId: number) =>
     apiFetch<

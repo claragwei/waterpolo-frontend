@@ -203,6 +203,7 @@ def _stats_to_dict(s: PlayerMatchStats) -> dict:
         "hustle": s.hustle,
         "draws": s.draws,
         "time_in_pool": s.time_in_pool,
+        "score": float(s.score or 0),
     }
 
 
