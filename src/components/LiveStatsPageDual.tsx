@@ -1439,7 +1439,12 @@ export default function LiveStatsPage() {
           )}
 
           {activePanel === 'match' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <TeamSituations
+                teamStats={teamStats}
+                onUpdateTeamStat={updateTeamStat}
+                possessionTimeline={possessionTimeline}
+              />
               <RefereePanel
                 refereeName={refereeName}
                 refereeCallCounts={refereeCallCounts}
@@ -1473,12 +1478,6 @@ export default function LiveStatsPage() {
                   <p className="text-sm text-amber-700">Start or resume a saved match to link reports.</p>
                 )}
               </Card>
-
-              <TeamSituations
-                teamStats={teamStats}
-                onUpdateTeamStat={updateTeamStat}
-                possessionTimeline={possessionTimeline}
-              />
 
               <FilmReviewPanel
                 replayEvents={replayEvents}
