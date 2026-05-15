@@ -23,7 +23,6 @@ import PlayerGrid from './PlayerGrid';
 import StatActionPanel from './StatActionPanel';
 import TeamSituations from './TeamSituations';
 import RefereePanel from './RefereePanel';
-import PossessionTimeline from './PossessionTimeline';
 import StatsTable from './StatsTable';
 import FilmReviewPanel from './FilmReviewPanel';
 import PlayerEditModal from './PlayerEditModal';
