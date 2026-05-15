@@ -1,105 +1,112 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from './ui/card';
 import { User } from 'lucide-react';
+import { api } from '../services/api';
+
+const DEFAULT_TEAM_ID = Number(import.meta.env.VITE_UCD_TEAM_ID ?? 1);
+
+type BatchRow = Awaited<ReturnType<typeof api.getPlayersBatchSummary>>[number];
+
+function avgPerGame(total: number, games: number): string | number {
+  if (!games) return '—';
+  return Math.round((total / games) * 100) / 100;
+}
 
 export default function PlayerStatsPage() {
-  const [players, setPlayers] = useState<any[]>([]);
-  const [selectedSeason, setSelectedSeason] = useState('2025');
-  const [statsMap, setStatsMap] = useState<Record<number, any>>({});
+  const [rows, setRows] = useState<BatchRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/players?team_id=1')
-      .then(res => res.json())
-      .then(async (data) => {
-        setPlayers(data);
-        const stats: Record<number, any> = {};
-        await Promise.all(data.map(async (p: any) => {
-          try {
-            const res = await fetch(`http://localhost:8000/api/players/${p.id}/averages`);
-            stats[p.id] = await res.json();
-          } catch {
-            stats[p.id] = null;
-          }
-        }));
-        setStatsMap(stats);
-      })
-      .catch(err => console.error('Failed to fetch players:', err));
-  }, [selectedSeason]);
+    let cancel = false;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await api.getPlayersBatchSummary(DEFAULT_TEAM_ID);
+        if (!cancel) setRows(data);
+      } catch (e) {
+        if (!cancel) {
+          setError(e instanceof Error ? e.message : 'Failed to load players');
+          setRows([]);
+        }
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-8 bg-[#F5F7FA] min-h-screen text-gray-600">Loading player stats…</div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 bg-[#F5F7FA] min-h-screen">
+        <h1 className="text-[#022851] mb-2">Player Season Stats</h1>
+        <p className="text-gray-600">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 bg-[#F5F7FA] min-h-screen">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-[#022851] mb-2">Player Season Stats</h1>
-          <p className="text-gray-600">UC Davis Water Polo — individual performance by season</p>
-        </div>
-        <select
-          className="border border-gray-300 rounded-md p-2 text-sm bg-white shadow-sm"
-          value={selectedSeason}
-          onChange={e => setSelectedSeason(e.target.value)}
-        >
-          <option value="2025">2025</option>
-          <option value="2024">2024</option>
-          <option value="2023">2023</option>
-        </select>
+      <div className="mb-8">
+        <h1 className="text-[#022851] mb-2">Player Season Stats</h1>
+        <p className="text-gray-600">Season totals from logged matches</p>
       </div>
 
-      {/* Player Cards */}
-      {players.length === 0 ? (
-        <p className="text-gray-500 text-center mt-16">Loading players...</p>
+      {rows.length === 0 ? (
+        <p className="text-gray-500 text-center mt-16">No active players found.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {players.map(player => {
-            const s = statsMap[player.id];
-            const goals = s?.total_goals ?? '—';
-            const avgGoals = s?.avg_goals != null ? Number(s.avg_goals).toFixed(2) : '—';
-            const assists = s?.total_assists ?? '—';
-            const steals = s?.total_steals ?? '—';
-            const shots = s?.total_shots ?? 0;
-            const accuracy = shots > 0 && s?.total_goals != null
-              ? `${Math.round((s.total_goals / shots) * 100)}%`
-              : '—';
-            const games = s?.games_played ?? '—';
+          {rows.map((player) => {
+            const games = player.games_played;
+            const avgGoals = avgPerGame(player.total_goals, games);
+            const avgAssists = avgPerGame(player.total_assists, games);
+            const avgSteals = avgPerGame(player.total_steals, games);
+            const shotPct = games ? `${player.shot_percentage}%` : '—';
 
             return (
-              <Card key={player.id} className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                {/* Player Header */}
+              <Card
+                key={player.id}
+                className="p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
+              >
                 <div className="flex items-center gap-4 mb-5">
                   <div className="w-14 h-14 bg-[#022851] rounded-full flex items-center justify-center flex-shrink-0">
                     <User className="text-[#FFBF00]" size={24} />
                   </div>
                   <div>
                     <h3 className="text-[#022851] font-semibold text-lg">{player.name}</h3>
-                    <p className="text-gray-500 text-sm">{games} games played • {selectedSeason}</p>
+                    <p className="text-gray-500 text-sm">{games} games with stats</p>
                   </div>
                 </div>
 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-[#022851]">{goals}</div>
-                    <div className="text-xs text-gray-500 mt-1">Goals</div>
-                  </div>
-                  <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
                     <div className="text-2xl font-bold text-[#022851]">{avgGoals}</div>
-                    <div className="text-xs text-gray-500 mt-1">Avg Goals/Game</div>
+                    <div className="text-xs text-gray-500 mt-1">Avg goals</div>
                   </div>
                   <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-[#022851]">{assists}</div>
-                    <div className="text-xs text-gray-500 mt-1">Assists</div>
+                    <div className="text-2xl font-bold text-[#022851]">{avgAssists}</div>
+                    <div className="text-xs text-gray-500 mt-1">Avg assists</div>
                   </div>
                   <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-[#022851]">{steals}</div>
-                    <div className="text-xs text-gray-500 mt-1">Steals</div>
+                    <div className="text-2xl font-bold text-[#022851]">{avgSteals}</div>
+                    <div className="text-xs text-gray-500 mt-1">Avg steals</div>
+                  </div>
+                  <div className="bg-[#F5F7FA] rounded-lg p-3 text-center col-span-2">
+                    <div className="text-2xl font-bold text-[#FFBF00]">{shotPct}</div>
+                    <div className="text-xs text-gray-500 mt-1">Shot %</div>
                   </div>
                   <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-[#FFBF00]">{accuracy}</div>
-                    <div className="text-xs text-gray-500 mt-1">Shot Accuracy</div>
-                  </div>
-                  <div className="bg-[#F5F7FA] rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-[#022851]">{shots}</div>
-                    <div className="text-xs text-gray-500 mt-1">Total Shots</div>
+                    <div className="text-2xl font-bold text-[#022851]">#{player.jersey_number}</div>
+                    <div className="text-xs text-gray-500 mt-1">Jersey</div>
                   </div>
                 </div>
               </Card>

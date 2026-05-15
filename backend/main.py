@@ -98,10 +98,23 @@ async def startup():
     try:
         db.connect(reuse_if_open=True)
         create_tables()
-        try:
-            db.execute_sql("ALTER TABLE player ADD COLUMN IF NOT EXISTS photo_url VARCHAR(512);")
-        except Exception as mig_e:
-            print(f"   (player.photo_url migration skipped: {mig_e})")
+        migrations = [
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS photo_url VARCHAR(512);",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_goals INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_assists INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_shots INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_steals INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_blocks INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_turnovers INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_exclusions INTEGER DEFAULT 0;",
+            "ALTER TABLE player ADD COLUMN IF NOT EXISTS total_penalties INTEGER DEFAULT 0;",
+            "ALTER TABLE playermatchstats ADD COLUMN IF NOT EXISTS score DOUBLE PRECISION DEFAULT 0;",
+        ]
+        for sql in migrations:
+            try:
+                db.execute_sql(sql)
+            except Exception as mig_e:
+                print(f"   (migration skipped: {mig_e})")
         # Ensure UC Davis always exists as team ID 1
         if not Team.get_or_none(Team.id == 1):
             Team.create(id=1, name='UC Davis', short_name='UCD', is_uc_davis=True)
@@ -313,11 +326,16 @@ def compute_and_save_score(row: PlayerMatchStats):
     )
     row.save()
 
-    def _score_tier(score: float) -> str:
-        if score >= 80: return "elite"
-        if score >= 60: return "strong"
-        if score >= 40: return "average"
-        return "developing"
+
+def _score_tier(score: float) -> str:
+    if score >= 80:
+        return "elite"
+    if score >= 60:
+        return "strong"
+    if score >= 40:
+        return "average"
+    return "developing"
+
 
 # ---------------------------------------------------------------------------
 # Teams

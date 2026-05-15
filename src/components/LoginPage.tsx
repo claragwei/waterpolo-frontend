@@ -1,11 +1,5 @@
-import { createClient } from '@supabase/supabase-js'; // <-- Add this import
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-//all of this stuff above needs to be configured
-
-import { useState, useEffect } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -20,71 +14,55 @@ interface LoginPageProps {
 
 export default function LoginPage({ onNavigate }: LoginPageProps) {
   const [isLogin, setIsLogin] = useState(true);
-  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [role, setRole] = useState('player');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const { signIn, signUp, user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const [user, setUser] = useState<any>(null);
+  const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
 
   useEffect(() => {
-    // 1. Check if someone is already logged in when the page loads
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
+    if (user && supabaseBrowser) {
+      navigate(from, { replace: true });
+    }
+  }, [user, from, navigate]);
 
-    // 2. Listen for any logins or logouts that happen while the page is open
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    // Cleanup listener
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-
-    console.log("Sending to Supabase:", { email, password });
-
-    setErrorMsg('');
-    setIsLoading(true);
-
+    setFormError(null);
+    if (!supabaseBrowser) {
+      onNavigate('dashboard');
+      return;
+    }
+    setSubmitting(true);
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        onNavigate('dashboard');
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name, role: role } }
-        });
-        if (error) throw error;
-
-        if (data.session) {
-          onNavigate('dashboard');
-        } else {
-          setErrorMsg('Check your email to confirm your account!');
-          setIsLogin(true);
+        const { error } = await signIn(email, password);
+        if (error) {
+          setFormError(
+            error.message.includes('Invalid login credentials')
+              ? 'Account not found or incorrect password. Try signing up.'
+              : error.message,
+          );
+          return;
         }
-      }
-    } catch (error: any) {
-      setErrorMsg(error.message);
-      if (isLogin && error.message.includes('Invalid login credentials')) {
-          setErrorMsg('Account not found or incorrect password. Please create an account.');
-          setIsLogin(false);
+        navigate(from, { replace: true });
+      } else {
+        const { error } = await signUp(email, password, fullName, role);
+        if (error) {
+          setFormError(error.message);
+          return;
+        }
+        setFormError('Check your email to confirm your account, then sign in.');
+        setIsLogin(true);
       }
     } finally {
-      setIsLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -156,22 +134,24 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
             {!isLogin && (
               <>
                 <div>
-                  <Label htmlFor="name" className="text-[#022851]">Full Name</Label>
+                  <Label htmlFor="name" className="text-[#022851]">
+                    Full Name
+                  </Label>
                   <Input
                     id="name"
                     type="text"
                     placeholder="John Doe"
                     className="mt-2 border-gray-300"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required={!isLogin}
                   />
                 </div>
-                
-                {/* This is where the new dropdown gets pasted */}
                 <div>
-                  <Label htmlFor="role" className="text-[#022851]">I am a...</Label>
-                  <select 
+                  <Label htmlFor="role" className="text-[#022851]">
+                    I am a…
+                  </Label>
+                  <select
                     id="role"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
@@ -198,8 +178,7 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  value={email}                               // <-- ADD THIS LINE
-                  onChange={(e) => setEmail(e.target.value)}  // <-- ADD THIS LINE
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -218,8 +197,8 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={6}
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
                 />
               </div>
             </div>
@@ -236,16 +215,17 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
 
             <Button
               type="submit"
-              disabled={isLoading}
-              className="w-full bg-[#FFBF00] hover:bg-[#C69214] text-[#022851] disabled:opacity-50"
+              disabled={submitting}
+              className="w-full bg-[#FFBF00] hover:bg-[#C69214] text-[#022851]"
             >
-              {isLoading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
+              {submitting ? 'Please wait…' : isLogin ? 'Sign In' : 'Create Account'}
             </Button>
-            {errorMsg && (
-    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md text-sm">
-      {errorMsg}
-    </div>
-  )}
+
+            {!supabaseBrowser && (
+              <Button type="button" variant="outline" className="w-full" onClick={() => onNavigate('dashboard')}>
+                Continue without Supabase (local dev)
+              </Button>
+            )}
           </form>
 
           <div className="mt-6 text-center">

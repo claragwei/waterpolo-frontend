@@ -8,7 +8,7 @@ type AuthContextValue = {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, fullName: string, role?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -51,16 +51,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error ? new Error(error.message) : null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string, role = 'player') => {
     if (!supabaseBrowser) {
       return { error: new Error('Supabase is not configured (set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).') };
     }
-    const { error } = await supabaseBrowser.auth.signUp({
+    const { data, error } = await supabaseBrowser.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: { data: { full_name: fullName, role } },
     });
-    return { error: error ? new Error(error.message) : null };
+    if (error) return { error: new Error(error.message) };
+    if (!data.session) {
+      return { error: null };
+    }
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
