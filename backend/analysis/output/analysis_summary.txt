@@ -1,0 +1,35 @@
+==============================================================
+WATER POLO PERFORMANCE ANALYSIS SUMMARY
+==============================================================
+
+Pearson r (time_in_pool vs performance_score): -0.0630
+Total records: 84
+Unique players: 12
+Unique matches: 10
+
+--- Per-Player Models (ranked by R²) ---
+  Player 7 (UCD)          R²=0.664  RMSE=8.98  games=7
+  Player 4 (UCD)          R²=0.622  RMSE=6.11  games=7
+  Player 1 (UCD)          R²=0.608  RMSE=9.03  games=6
+  Player 3 (UCD)          R²=0.075  RMSE=19.71  games=6  ⚠ POOR FIT
+  Player 9 (UCD)          R²=0.049  RMSE=13.29  games=6  ⚠ POOR FIT
+  Player 2 (UCD)          R²=0.048  RMSE=6.83  games=7  ⚠ POOR FIT
+  Player 11 (UCD)         R²=0.037  RMSE=13.15  games=6  ⚠ POOR FIT
+  Player 10 (UCD)         R²=0.034  RMSE=10.93  games=7  ⚠ POOR FIT
+  Player 12 (UCD)         R²=0.033  RMSE=16.15  games=8  ⚠ POOR FIT
+  Player 5 (UCD)          R²=0.027  RMSE=11.49  games=8  ⚠ POOR FIT
+  Player 8 (UCD)          R²=0.026  RMSE=15.96  games=8  ⚠ POOR FIT
+  Player 6 (UCD)          R²=0.014  RMSE=13.82  games=8  ⚠ POOR FIT
+
+--- Poor Fit Players (R² < 0.3) — high variance ---
+  Player 2 (UCD): R²=0.048
+  Player 3 (UCD): R²=0.075
+  Player 5 (UCD): R²=0.027
+  Player 6 (UCD): R²=0.014
+  Player 8 (UCD): R²=0.026
+  Player 9 (UCD): R²=0.049
+  Player 10 (UCD): R²=0.034
+  Player 11 (UCD): R²=0.037
+  Player 12 (UCD): R²=0.033
+
+==============================================================

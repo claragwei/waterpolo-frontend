@@ -19,19 +19,12 @@ export default function TeamIndicatorBanner({
     >
       <div className="text-center">
         <h2
-          className={`text-2xl ${
+          className={`text-xl ${
             currentPossession === 'ucDavis' ? 'text-[#022851]' : 'text-white'
           }`}
         >
-          Now Tracking: {activeTeamName}
+          {activeTeamName} Possession
         </h2>
-        <p
-          className={`text-sm ${
-            currentPossession === 'ucDavis' ? 'text-[#022851]/70' : 'text-white/70'
-          }`}
-        >
-          Switch possession to track the other team
-        </p>
       </div>
     </Card>
   );
