@@ -22,6 +22,8 @@ import { Toaster } from './components/ui/sonner';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { supabaseBrowser } from './lib/supabaseBrowser';
 
+import PlayerStatsPage from './components/PlayerStatsPage';
+
 function pathToSidebarId(pathname: string): string {
   if (pathname.startsWith('/matches/')) return 'matches';
   if (pathname.startsWith('/dashboard')) return 'dashboard';
@@ -194,6 +196,14 @@ function AppRoutes() {
         element={
           <ProtectedApp>
             <SettingsPage />
+          </ProtectedApp>
+        }
+      />
+      <Route
+        path="/player-stats"
+        element={
+          <ProtectedApp>
+            <PlayerStatsPage />
           </ProtectedApp>
         }
       />

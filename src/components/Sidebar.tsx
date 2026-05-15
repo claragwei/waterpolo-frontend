@@ -1,4 +1,4 @@
-import { LayoutDashboard, Trophy, Users, FileText, Settings, Activity, Flame } from 'lucide-react';
+import { LayoutDashboard, Trophy, Users, FileText, Settings, Activity } from 'lucide-react';
 
 interface SidebarProps {
   currentPage: string;
@@ -12,8 +12,9 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     { id: 'players', label: 'Players', icon: Users },
     { id: 'live-stats', label: 'Live Stats', icon: Activity },
     { id: 'reports', label: 'Reports', icon: FileText },
-    { id: 'heatmaps', label: 'Heatmaps', icon: Flame },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'player-stats', label: 'Player Stats', icon: Users },
+
   ];
 
   return (
