@@ -277,6 +277,47 @@ def update_player_career_stats(player: Player):
     player.total_penalties = sum(s.penalties for s in stats)
     player.save()
 
+def compute_and_save_score(row: PlayerMatchStats):
+    shots = max(row.shots, 0.1)
+
+    MAX = {
+        "conversion": 0.60,
+        "assists":    3.0,
+        "steals":     2.5,
+        "rebounds":   2.0,
+        "sprints":    1.5,
+        "hustle":     3.0,
+        "draws":      2.0,
+    }
+
+    def norm(val, max_val):
+        return min(val / max_val * 100, 100)
+
+    conv_score    = norm(row.goals / shots,  MAX["conversion"])
+    assist_score  = norm(row.assists,        MAX["assists"])
+    steal_score   = norm(row.steals,         MAX["steals"])
+    rebound_score = norm(row.rebounds,       MAX["rebounds"])
+    sprint_score  = norm(row.sprints,        MAX["sprints"])
+    hustle_score  = norm(row.hustle,         MAX["hustle"])
+    draw_score    = norm(row.draws,          MAX["draws"])
+
+    row.score = round(
+        conv_score    * 0.32 +
+        assist_score  * 0.16 +
+        steal_score   * 0.16 +
+        rebound_score * 0.08 +
+        sprint_score  * 0.08 +
+        hustle_score  * 0.07 +
+        draw_score    * 0.05,
+        1
+    )
+    row.save()
+
+    def _score_tier(score: float) -> str:
+        if score >= 80: return "elite"
+        if score >= 60: return "strong"
+        if score >= 40: return "average"
+        return "developing"
 
 # ---------------------------------------------------------------------------
 # Teams
@@ -468,6 +509,54 @@ async def get_player_averages(player_id: int):
         "shot_percentage": round((goals / shot_attempts * 100) if shot_attempts else 0, 1),
     }
 
+# Score for a single game
+@app.get("/api/players/{player_id}/stats/{match_id}/score")
+async def get_player_game_score(player_id: int, match_id: int):
+    row = PlayerMatchStats.get_or_none(
+        (PlayerMatchStats.player == player_id) &
+        (PlayerMatchStats.match == match_id)
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Stats not found")
+    return {
+        "player_id": player_id,
+        "match_id":  match_id,
+        "score":     row.score,
+        "tier":      _score_tier(row.score),
+    }
+
+
+# Score for every game a player has played
+@app.get("/api/players/{player_id}/scores")
+async def get_player_all_scores(player_id: int):
+    player = Player.get_or_none(Player.id == player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    rows = PlayerMatchStats.select().where(PlayerMatchStats.player == player_id)
+    scores = [{"match_id": r.match_id, "score": r.score, "tier": _score_tier(r.score)} for r in rows]
+    avg = round(sum(s["score"] for s in scores) / len(scores), 1) if scores else 0
+    return {
+        "player_id":   player_id,
+        "games_played": len(scores),
+        "avg_score":   avg,
+        "games":       scores,
+    }
+
+
+# Scores for all players in a match
+@app.get("/api/matches/{match_id}/scores")
+async def get_match_scores(match_id: int):
+    match = Match.get_or_none(Match.id == match_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    rows = PlayerMatchStats.select().where(PlayerMatchStats.match == match_id)
+    return sorted(
+        [{"player_id": r.player_id, "score": r.score, "tier": _score_tier(r.score)} for r in rows],
+        key=lambda x: x["score"],
+        reverse=True,
+    )
+
+
 
 @app.get("/api/players/{player_id}/match-history")
 async def player_match_history(player_id: int, limit: int = Query(40)):
@@ -642,6 +731,7 @@ async def increment_match_stats(match_id: int, body: StatsDelta):
         kwargs = {f: delta.get(f, 0) for f in stat_fields}
         row = PlayerMatchStats.create(match=match, player=player, **kwargs)
 
+    compute_and_save_score(row)  
     update_player_career_stats(player)
     return _stats_to_dict(row)
 
@@ -666,6 +756,7 @@ async def overwrite_match_stats(match_id: int, body: StatsOverwrite):
     else:
         row = PlayerMatchStats.create(match=match, player=player, **data)
 
+    compute_and_save_score(row)  
     update_player_career_stats(player)
     return _stats_to_dict(row)
 
